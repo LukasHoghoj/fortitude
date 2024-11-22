@@ -50,6 +50,8 @@ strum_macros = { workspace = true }
 supports-hyperlinks = { workspace = true }
 textwrap = { workspace = true }
 thiserror = { workspace = true }
+topiary-core = { workspace = true }
+topiary-tree-sitter-facade = { workspace = true }
 tree-sitter = { workspace = true }
 tree-sitter-fortran = { workspace = true }
 unicode-width = { workspace = true }

@@ -1,6 +1,7 @@
 pub mod allow_comments;
 pub mod diagnostics;
 pub mod fix;
+pub mod format;
 pub mod fs;
 pub mod indentation;
 pub mod line_filter;

@@ -2,6 +2,7 @@ pub mod check;
 pub mod cli;
 pub mod commands;
 pub mod explain;
+pub mod format;
 pub mod printer;
 pub mod resolve;
 pub mod server;

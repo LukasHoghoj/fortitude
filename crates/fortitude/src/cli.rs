@@ -142,6 +142,7 @@ impl From<&LogLevelArgs> for LogLevel {
 pub enum SubCommands {
     Check(CheckCommand),
     Explain(ExplainCommand),
+    Format(FormatArgs),
     /// Generate shell completion.
     #[clap(hide = true)]
     GenerateShellCompletion {
@@ -768,6 +769,42 @@ pub struct ExplainCommand {
     /// Output format
     #[arg(long, value_enum, default_value = "text")]
     pub output_format: HelpFormat,
+}
+
+/// EXPERIMENTAL! Format files, printing to stdout
+#[derive(Debug, clap::Parser, Deserialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct FormatArgs {
+    /// List of files or directories to format. Directories are searched recursively for
+    /// Fortran files. The `--file-extensions` option can be used to control which files
+    /// are included in the search.
+    #[arg(default_value = ".")]
+    pub files: Option<Vec<PathBuf>>,
+    /// File extensions to format
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_name = "EXTENSION",
+        help_heading = "File selection"
+    )]
+    pub file_extensions: Option<Vec<String>>,
+}
+
+impl FormatArgs {
+    /// Partition the CLI into the files to format and configuration
+    /// overrides.
+    pub fn partition(
+        self,
+        global_options: GlobalConfigArgs,
+    ) -> anyhow::Result<(Vec<PathBuf>, ConfigArguments)> {
+        let per_flag_overrides = ExplicitConfigOverrides {
+            file_extensions: self.file_extensions,
+            ..ExplicitConfigOverrides::default()
+        };
+
+        let config_args = ConfigArguments::from_cli_arguments(global_options, per_flag_overrides)?;
+        Ok((self.files.unwrap_or_default(), config_args))
+    }
 }
 
 #[derive(Copy, Clone, Debug, clap::Parser)]

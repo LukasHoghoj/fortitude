@@ -92,6 +92,8 @@ textwrap = { version = "0.16.0" }
 termimad = { version = "0.31.3" }
 terminal-light = { version = "1.8.0" }
 thiserror = { version = "1.0.58" }
+topiary-core = { version = "0.7.3" }
+topiary-tree-sitter-facade = { version = "0.7.3" }
 tracing = { version = "0.1.40" }
 tracing-log = { version = "0.2.0" }
 tracing-subscriber = { version = "0.3.18", default-features = false, features = [
