@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{BufReader, BufWriter},
+    io::{BufReader, Write},
     path::PathBuf,
 };
 
@@ -22,18 +22,20 @@ pub fn create_formatter() -> Language {
     }
 }
 
-/// Format an individual file, printing to stdout
-pub fn format_file(file: PathBuf, language: &Language) -> Result<(), FormatterError> {
+/// Format an individual file
+pub fn format_file(
+    file: PathBuf,
+    language: &Language,
+    output: &mut impl Write,
+) -> Result<(), FormatterError> {
     println!("formatting {file:?}");
     let input = File::open(file)?;
 
-    let output = std::io::stdout();
     let mut buf_input = BufReader::new(input);
-    let mut buf_output = BufWriter::new(output);
 
     formatter(
         &mut buf_input,
-        &mut buf_output,
+        output,
         language,
         // TODO: user args?
         Operation::Format {
@@ -42,6 +44,40 @@ pub fn format_file(file: PathBuf, language: &Language) -> Result<(), FormatterEr
         },
     )?;
 
-    buf_output.into_inner()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use std::path::Path;
+
+    use anyhow::Result;
+    use insta::assert_snapshot;
+    use lazy_static::lazy_static;
+    use test_case::test_case;
+    use topiary_core::{FormatterError, Language};
+
+    use crate::apply_common_filters;
+
+    use super::{create_formatter, format_file};
+
+    lazy_static! {
+        pub static ref TEST_FORMATTER: Language = create_formatter();
+    }
+
+    #[test_case(Path::new("simple.f90"))]
+    fn format(path: &Path) -> Result<(), FormatterError> {
+        let snapshot = format!("{}", path.to_string_lossy());
+
+        let path = Path::new("./resources/test/fixtures/format").join(path);
+
+        let mut buf = Vec::new();
+        format_file(path, &TEST_FORMATTER, &mut buf)?;
+        apply_common_filters!();
+
+        let string = String::from_utf8(buf)?;
+        assert_snapshot!(snapshot, string);
+
+        Ok(())
+    }
 }

@@ -1,4 +1,4 @@
-use std::process::ExitCode;
+use std::{io::BufWriter, process::ExitCode};
 
 use fortitude_linter::format::{create_formatter, format_file};
 use fortitude_workspace::resolver::fortran_files_in_path;
@@ -9,6 +9,8 @@ use crate::resolve;
 use anyhow::Result;
 
 /// Run the formatter over a whole project
+///
+/// TODO: Proper options like ``check``
 pub fn format(args: FormatArgs, global_options: GlobalConfigArgs) -> Result<ExitCode> {
     let (files, config_arguments) = args.partition(global_options)?;
     let fortitude_config = resolve::resolve(&config_arguments, None)?;
@@ -26,7 +28,10 @@ pub fn format(args: FormatArgs, global_options: GlobalConfigArgs) -> Result<Exit
             }
         };
 
-        match format_file(file, &language) {
+        let output = std::io::stdout();
+        let mut buf_output = BufWriter::new(output);
+
+        match format_file(file, &language, &mut buf_output) {
             Ok(_) => continue,
             Err(err) => {
                 println!("Formatter error: {err}");
