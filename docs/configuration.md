@@ -260,6 +260,7 @@ Usage: fortitude [OPTIONS] <COMMAND>
 Commands:
   check    Perform static analysis on files and report issues
   explain  Get descriptions, rationales, and solutions for each rule
+  format   EXPERIMENTAL! Format files, printing to stdout
   version  Display Fortitude's version
   config   List or describe the available configuration options
   server   Run the language server
