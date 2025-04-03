@@ -1,0 +1,8 @@
+---
+source: crates/fortitude_linter/src/format.rs
+expression: string
+---
+PROGRAM TEST
+END PROGRAM
+PROGRAM TEST
+END PROGRAM TEST

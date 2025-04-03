@@ -1,7 +1,6 @@
 ---
 source: crates/fortitude_linter/src/format.rs
 expression: string
-snapshot_kind: text
 ---
 program foo
-endprogram foo
+end program foo
