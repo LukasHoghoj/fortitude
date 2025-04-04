@@ -36,6 +36,7 @@
  (procedure_qualifier)
  (block_label_start_expression)
  (intrinsic_type)
+ (derived_type)
 ] @append_space
 
 ; start end blocks (hardline)
