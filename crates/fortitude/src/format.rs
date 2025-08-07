@@ -1,9 +1,7 @@
 use std::{io::BufWriter, process::ExitCode};
 
-use fortitude_linter::{
-    format::{create_formatter, format_file},
-    settings::PreviewMode,
-};
+use fortitude_formatter::{create_formatter, format_file};
+use fortitude_linter::settings::PreviewMode;
 use fortitude_workspace::{configuration::resolve_bool_arg, resolver::fortran_files_in_path};
 
 use crate::cli::{FormatArgs, GlobalConfigArgs};

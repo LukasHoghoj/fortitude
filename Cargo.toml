@@ -20,6 +20,7 @@ license = "MIT"
 
 [workspace.dependencies]
 fortitude = { path = "crates/fortitude" }
+fortitude_formatter = { path = "crates/fortitude_formatter" }
 fortitude_linter = { path = "crates/fortitude_linter" }
 fortitude_macros = { path = "crates/fortitude_macros" }
 fortitude_server = { path = "crates/fortitude_server" }
