@@ -996,6 +996,7 @@ dependencies = [
  "test-case",
  "topiary-core",
  "topiary-tree-sitter-facade",
+ "tree-sitter",
  "tree-sitter-fortran",
 ]
 
