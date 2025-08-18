@@ -4,7 +4,7 @@ use fortitude_formatter::{create_formatter, format_file};
 use fortitude_linter::settings::PreviewMode;
 use fortitude_workspace::{configuration::resolve_bool_arg, resolver::fortran_files_in_path};
 
-use crate::cli::{FormatArgs, GlobalConfigArgs};
+use crate::cli::{FormatCommand, GlobalConfigArgs};
 use crate::resolve;
 
 use anyhow::Result;
@@ -12,7 +12,7 @@ use anyhow::Result;
 /// Run the formatter over a whole project
 ///
 /// TODO: Proper options like ``check``
-pub fn format(args: FormatArgs, global_options: GlobalConfigArgs) -> Result<ExitCode> {
+pub fn format(args: FormatCommand, global_options: GlobalConfigArgs) -> Result<ExitCode> {
     if !args.i_understand_the_risks.unwrap_or_default() {
         println!(
             "The format command is still in development and may break your code (although it

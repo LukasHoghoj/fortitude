@@ -142,7 +142,7 @@ impl From<&LogLevelArgs> for LogLevel {
 pub enum SubCommands {
     Check(CheckCommand),
     Explain(ExplainCommand),
-    Format(FormatArgs),
+    Format(FormatCommand),
     /// Generate shell completion.
     #[clap(hide = true)]
     GenerateShellCompletion {
@@ -774,7 +774,7 @@ pub struct ExplainCommand {
 /// EXPERIMENTAL! Format files, printing to stdout
 #[derive(Debug, clap::Parser, Deserialize, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
-pub struct FormatArgs {
+pub struct FormatCommand {
     /// List of files or directories to format. Directories are searched recursively for
     /// Fortran files. The `--file-extensions` option can be used to control which files
     /// are included in the search.
@@ -800,9 +800,12 @@ pub struct FormatArgs {
     pub preview: Option<bool>,
     #[clap(long, overrides_with("preview"), hide = true, action = SetTrue)]
     pub no_preview: Option<bool>,
+    /// Set the line-length.
+    #[arg(long, help_heading = "Format configuration")]
+    pub line_length: Option<usize>,
 }
 
-impl FormatArgs {
+impl FormatCommand {
     /// Partition the CLI into the files to format and configuration
     /// overrides.
     pub fn partition(
