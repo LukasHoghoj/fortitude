@@ -17,8 +17,8 @@ use fortitude_linter::rule_selector::{
 use fortitude_linter::rule_table::RuleTable;
 use fortitude_linter::rules::Rule;
 use fortitude_linter::settings::{
-    CheckSettings, DEFAULT_SELECTORS, ExcludeMode, FileResolverSettings, FortranStandard,
-    GitignoreMode, OutputFormat, PreviewMode, ProgressBar, Settings, UnsafeFixes,
+    CheckSettings, DEFAULT_SELECTORS, ExcludeMode, FileResolverSettings, FormatSettings,
+    FortranStandard, GitignoreMode, OutputFormat, PreviewMode, ProgressBar, Settings, UnsafeFixes,
 };
 use fortitude_linter::{fs, warn_user_once, warn_user_once_by_id, warn_user_once_by_message};
 
@@ -466,6 +466,12 @@ impl Configuration {
                     .complexity
                     .map(ComplexityOptions::into_settings)
                     .unwrap_or_default(),
+            },
+            format: FormatSettings {
+                line_length: self
+                    .line_length
+                    .unwrap_or(Settings::default().check.line_length),
+                preview,
             },
             file_resolver: FileResolverSettings {
                 project_root: project_root.to_path_buf(),

@@ -805,20 +805,32 @@ pub struct FormatCommand {
     pub line_length: Option<usize>,
 }
 
+pub struct FormatArgs {
+    pub files: Vec<PathBuf>,
+    pub i_understand_the_risks: bool,
+}
+
 impl FormatCommand {
-    /// Partition the CLI into the files to format and configuration
+    /// Partition the CLI into command-line arguments and configuration
     /// overrides.
     pub fn partition(
         self,
         global_options: GlobalConfigArgs,
-    ) -> anyhow::Result<(Vec<PathBuf>, ConfigArguments)> {
+    ) -> anyhow::Result<(FormatArgs, ConfigArguments)> {
+        let format_args = FormatArgs {
+            files: self.files.unwrap_or_default(),
+            i_understand_the_risks: self.i_understand_the_risks.unwrap_or_default(),
+        };
+
         let per_flag_overrides = ExplicitConfigOverrides {
             file_extensions: self.file_extensions,
+            line_length: self.line_length,
+            preview: resolve_bool_arg(self.preview, self.no_preview).map(PreviewMode::from),
             ..ExplicitConfigOverrides::default()
         };
 
         let config_args = ConfigArguments::from_cli_arguments(global_options, per_flag_overrides)?;
-        Ok((self.files.unwrap_or_default(), config_args))
+        Ok((format_args, config_args))
     }
 }
 

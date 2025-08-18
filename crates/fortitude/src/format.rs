@@ -2,7 +2,7 @@ use std::{io::BufWriter, process::ExitCode};
 
 use fortitude_formatter::{create_formatter, format_file};
 use fortitude_linter::settings::PreviewMode;
-use fortitude_workspace::{configuration::resolve_bool_arg, resolver::fortran_files_in_path};
+use fortitude_workspace::resolver::fortran_files_in_path;
 
 use crate::cli::{FormatCommand, GlobalConfigArgs};
 use crate::resolve;
@@ -13,7 +13,9 @@ use anyhow::Result;
 ///
 /// TODO: Proper options like ``check``
 pub fn format(args: FormatCommand, global_options: GlobalConfigArgs) -> Result<ExitCode> {
-    if !args.i_understand_the_risks.unwrap_or_default() {
+    let (cli, config_arguments) = args.partition(global_options)?;
+
+    if !cli.i_understand_the_risks {
         println!(
             "The format command is still in development and may break your code (although it
 _probably_ won't), and future changes may give different results. To use the
@@ -23,21 +25,19 @@ risks."
         return Ok(ExitCode::FAILURE);
     }
 
-    let preview = resolve_bool_arg(args.preview, args.no_preview)
-        .map(PreviewMode::from)
-        .unwrap_or_default();
+    // Settings from the config file, overridden with options from the CLI
+    let fortitude_config = resolve::resolve(&config_arguments, None)?;
+    let settings = &fortitude_config.settings;
 
-    if preview == PreviewMode::Disabled {
+    if settings.format.preview == PreviewMode::Disabled {
         println!("Format mode is currently in preview; nothing to do");
         return Ok(ExitCode::SUCCESS);
     }
 
-    let (files, config_arguments) = args.partition(global_options)?;
-    let fortitude_config = resolve::resolve(&config_arguments, None)?;
-    let (paths, _resolver) =
-        fortran_files_in_path(&files, &None, &fortitude_config, &config_arguments)?;
-
     let language = create_formatter();
+
+    let (paths, _resolver) =
+        fortran_files_in_path(&cli.files, &None, &fortitude_config, &config_arguments)?;
 
     for path in paths {
         let file = match path {
@@ -51,7 +51,7 @@ risks."
         let output = std::io::stdout();
         let mut buf_output = BufWriter::new(output);
 
-        match format_file(file, &language, &mut buf_output) {
+        match format_file(file, &language, &settings.format, &mut buf_output) {
             Ok(_) => continue,
             Err(err) => {
                 println!("Formatter error: {err}");

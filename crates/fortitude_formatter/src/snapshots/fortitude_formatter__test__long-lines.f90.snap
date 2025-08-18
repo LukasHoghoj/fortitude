@@ -18,7 +18,10 @@ program mod1
     hhh, &
     aaaaa, &
     ccccc, &
-    ddddd
+    ddddd, &
+    eeeee, &
+    fffff, &
+    ggggg
 contains
   subroutine return_val(abc)
     integer, intent(out) :: abc
