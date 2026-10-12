@@ -106,8 +106,17 @@ pub(crate) fn join_continuation_lines(source: &str, join_strings: bool) -> Vec<S
                     });
                     in_string = scan.open_string;
                 }
-                // Not continued, or a comment / blank line
-                _ => result.push(line.to_string()),
+                // Comment or blank line
+                _ if code.trim().is_empty() => result.push(line.to_string()),
+                // Not continued
+                _ => {
+                    let statement = Statement {
+                        text: code.trim_start().to_string(),
+                        indent: indent_of(line),
+                        comments: vec![],
+                    };
+                    emit_statement(statement, &line[scan.code_end..], &mut result);
+                }
             }
             continue;
         };
@@ -196,20 +205,62 @@ fn finish_line(
     }
 }
 
-/// Add a complete statement, preceded by comments moved from continuation lines
+/// Split `text` into the statements separated by ';' (outside of string literals)
+fn split_statements(text: &str) -> Vec<&str> {
+    let mut statements = vec![];
+    let mut start = 0;
+    let mut in_string: Option<char> = None;
+    let mut chars = text.char_indices().peekable();
+    while let Some((pos, c)) = chars.next() {
+        match in_string {
+            Some(delim) if c == delim => {
+                if chars.peek().is_some_and(|&(_, next)| next == delim) {
+                    chars.next();
+                } else {
+                    in_string = None;
+                }
+            }
+            Some(_) => {}
+            None if c == '"' || c == '\'' => in_string = Some(c),
+            None if c == ';' => {
+                statements.push(&text[start..pos]);
+                start = pos + 1;
+            }
+            None => {}
+        }
+    }
+    statements.push(&text[start..]);
+    statements
+        .into_iter()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Add a complete statement, preceded by comments moved from continuation lines.
+///
+/// Statements separated by ';' are put on lines of their own, as a line can't
+/// start with ';'.
 fn emit_statement(statement: Statement, comment: &str, result: &mut Vec<String>) {
     let indent = " ".repeat(statement.indent);
     for moved in &statement.comments {
         result.push(format!("{indent}{moved}"));
     }
-    let mut lines: Vec<String> = statement.text.split('\n').map(String::from).collect();
-    lines[0].insert_str(0, &indent);
-    if !comment.is_empty() {
-        let last = lines.last_mut().unwrap();
-        last.push(' ');
-        last.push_str(comment);
+    let start = result.len();
+    for text in split_statements(&statement.text) {
+        let mut lines = text.split('\n');
+        result.push(format!("{indent}{}", lines.next().unwrap_or_default()));
+        result.extend(lines.map(String::from));
     }
-    result.extend(lines);
+    if !comment.is_empty() {
+        if result.len() == start {
+            result.push(format!("{indent}{comment}"));
+        } else {
+            let last = result.last_mut().unwrap();
+            last.push(' ');
+            last.push_str(comment);
+        }
+    }
 }
 
 /// Indent the continuation lines of continued string literals relative to the
@@ -278,6 +329,20 @@ mod test {
         assert_eq!(
             join_continuation_lines(source, false),
             vec!["real function f()", "integer :: i", "! comment &", "x = 1"]
+        );
+    }
+
+    #[test]
+    fn split_at_semicolons() {
+        let source = "  a = 1; print *, 'a;b', \"c &\n  &;d\"; ; b = 2 ! comment;\n";
+        assert_eq!(
+            join_continuation_lines(source, false),
+            vec![
+                "  a = 1",
+                "  print *, 'a;b', \"c &",
+                "&;d\"",
+                "  b = 2 ! comment;"
+            ]
         );
     }
 

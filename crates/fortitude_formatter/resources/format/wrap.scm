@@ -22,3 +22,7 @@
   left: (_) @break-after
   right: (_)
 ) @root
+
+(output_item_list
+    "," @break-after
+) @root

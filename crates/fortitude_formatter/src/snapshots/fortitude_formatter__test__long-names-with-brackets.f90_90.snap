@@ -1,0 +1,14 @@
+---
+source: crates/fortitude_formatter/src/lib.rs
+expression: formatted
+snapshot_kind: text
+---
+subroutine foo()
+  this_is_a_rather_long_result_variable = a_very_long_function_name_for_testing_purposes( &
+    first_argument + second_argument * (third_argument - fourth_argument), &
+    b)
+  call a_subroutine_with_an_extremely_long_name_that_takes_most_of_the_line_width( &
+    alpha_argument, &
+    beta_argument, &
+    gamma_argument)
+end subroutine foo

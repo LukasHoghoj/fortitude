@@ -626,6 +626,8 @@ impl CheckCommand {
             extend_fixable: self.extend_fixable,
             target_std: self.target_std,
             progress_bar: self.progress_bar,
+            split_comments: None,
+            split_strings: None,
         };
 
         let config_args = ConfigArguments::from_cli_arguments(global_options, per_flag_overrides)?;
@@ -659,6 +661,8 @@ struct ExplicitConfigOverrides {
     extend_fixable: Option<Vec<RuleSelector>>,
     target_std: Option<FortranStandard>,
     progress_bar: Option<ProgressBar>,
+    split_comments: Option<bool>,
+    split_strings: Option<bool>,
 }
 
 impl ConfigurationTransformer for ExplicitConfigOverrides {
@@ -715,6 +719,12 @@ impl ConfigurationTransformer for ExplicitConfigOverrides {
         }
         if self.output_format.is_some() {
             config.output_format = self.output_format;
+        }
+        if self.split_comments.is_some() {
+            config.split_comments = self.split_comments;
+        }
+        if self.split_strings.is_some() {
+            config.split_strings = self.split_strings;
         }
         if let Some(select) = &self.select {
             config.select = Some(select.clone());
@@ -803,6 +813,16 @@ pub struct FormatCommand {
     /// Set the line-length.
     #[arg(long, help_heading = "Format configuration")]
     pub line_length: Option<usize>,
+    /// Wrap comment lines exceeding the line length at whitespace, repeating the comment
+    /// marker. Compiler and OpenMP/OpenACC directives (`!$omp`, `!$`, `!DIR$`, ...) and
+    /// `allow` comments are never wrapped.
+    #[arg(long, action = SetTrue, help_heading = "Format configuration")]
+    pub split_comments: Option<bool>,
+    /// Split string literals exceeding the line length using character context
+    /// continuation (`"abc &` followed by `&def"`), which leaves the value of the string
+    /// unchanged. Continued strings are joined and split again where necessary.
+    #[arg(long, action = SetTrue, help_heading = "Format configuration")]
+    pub split_strings: Option<bool>,
 }
 
 pub struct FormatArgs {
@@ -826,6 +846,8 @@ impl FormatCommand {
             file_extensions: self.file_extensions,
             line_length: self.line_length,
             preview: resolve_bool_arg(self.preview, self.no_preview).map(PreviewMode::from),
+            split_comments: self.split_comments,
+            split_strings: self.split_strings,
             ..ExplicitConfigOverrides::default()
         };
 

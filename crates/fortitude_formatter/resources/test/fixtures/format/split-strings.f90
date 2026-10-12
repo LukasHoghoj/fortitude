@@ -1,0 +1,10 @@
+program p
+print *, "short", "this one has a bang! and ""escaped quotes"" that we must keep intact", 42
+print '(A, I0)', 'single quoted message which is also quite long: ', 7
+call log_message("averyveryveryveryveryverylongwordwithoutanyspacesinsideatall")
+print *, "this is a very long message that is going to be &
+&continued inside the string! and its second part is long as well", 1
+print *, "abc &
+   &! and &
+   &word"
+end program

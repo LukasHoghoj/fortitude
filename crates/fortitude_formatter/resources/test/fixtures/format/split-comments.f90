@@ -1,0 +1,15 @@
+! This top level comment line goes beyond the limit of sixty characters.
+module m
+contains
+!> Doxygen documentation for the subroutine that needs wrapping too.
+subroutine foo(a)
+integer :: a
+!DIR$ ATTRIBUTES FORCEINLINE :: some_extremely_long_routine_name_x
+!$omp parallel do private(some_extremely_long_variable_name, another_one)
+!no space after the marker but still a long comment to be wrapped
+      a = 1 ! inline comment which is long enough that it must be split
+   ! a long indented comment line that is wider than the line limit
+! allow(line-too-long) because the following line is really very long indeed
+! xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+end subroutine foo
+end module m

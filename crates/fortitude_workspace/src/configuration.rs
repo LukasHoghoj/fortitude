@@ -266,6 +266,9 @@ pub struct Configuration {
     pub line_too_long: Option<LineTooLongOptions>,
     pub use_statements: Option<UseStatementsOptions>,
     pub complexity: Option<ComplexityOptions>,
+    // Formatter
+    pub split_comments: Option<bool>,
+    pub split_strings: Option<bool>,
 }
 
 impl Configuration {
@@ -369,6 +372,10 @@ impl Configuration {
             line_too_long: check.line_too_long,
             use_statements: check.use_statements,
             complexity: check.complexity,
+
+            // Formatter options can only be set on the command line so far
+            split_comments: None,
+            split_strings: None,
         }
     }
 
@@ -472,6 +479,8 @@ impl Configuration {
                     .line_length
                     .unwrap_or(Settings::default().check.line_length),
                 preview,
+                split_comments: self.split_comments.unwrap_or_default(),
+                split_strings: self.split_strings.unwrap_or_default(),
             },
             file_resolver: FileResolverSettings {
                 project_root: project_root.to_path_buf(),
@@ -560,6 +569,8 @@ impl Configuration {
             line_too_long: self.line_too_long.or(config.line_too_long),
             use_statements: self.use_statements.or(config.use_statements),
             complexity: self.complexity.or(config.complexity),
+            split_comments: self.split_comments.or(config.split_comments),
+            split_strings: self.split_strings.or(config.split_strings),
         }
     }
 }

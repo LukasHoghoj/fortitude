@@ -1,5 +1,6 @@
 mod continuation;
 mod preprocessor;
+mod split;
 
 use std::{cmp::Ordering, collections::HashMap, io::Write, path::PathBuf};
 
@@ -8,6 +9,7 @@ use anyhow::Result;
 use continuation::{indent_string_continuations, join_continuation_lines};
 use fortitude_linter::settings::FormatSettings;
 use preprocessor::format_with_directives;
+use split::{split_long_comments, split_long_strings};
 use topiary_core::{FormatterError, Language, Operation, TopiaryQuery, formatter};
 use tree_sitter::{Point, Query, QueryCursor, StreamingIterator, Tree, TreeCursor};
 
@@ -72,7 +74,8 @@ fn format_code(
     language: &Language,
     settings: &FormatSettings,
 ) -> Result<Vec<String>, FormatterError> {
-    let format_input = join_continuation_lines(source, false).join("\n");
+    // Continued strings are joined to be split again where necessary
+    let format_input = join_continuation_lines(source, settings.split_strings).join("\n");
     let mut format_output = vec![];
 
     formatter(
@@ -91,6 +94,12 @@ fn format_code(
 
     indent_string_continuations(&mut lines);
     break_lines(&mut lines, settings.line_length, 2);
+    if settings.split_strings {
+        split_long_strings(&mut lines, settings.line_length, 2);
+    }
+    if settings.split_comments {
+        split_long_comments(&mut lines, settings.line_length);
+    }
 
     Ok(lines)
 }
@@ -106,6 +115,8 @@ struct Break {
 struct BreakCollection {
     breaks: Vec<Break>,
     pattern_id: usize,
+    /// Some of the breaks are at the end of a line already
+    broken: bool,
 }
 
 // Repeately break lines until no long lines remain
@@ -180,6 +191,7 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
     matches.for_each(|x| {
         let mut break_node_id = None;
         let mut breaks = vec![];
+        let mut broken = false;
         x.captures.iter().for_each(|qc| {
             let range = &qc.node.range();
             if qc.index == i_root {
@@ -189,6 +201,8 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
                 );
             } else if qc.index == i_break_after {
                 let row = qc.node.start_position().row;
+                let after = &lines[range.end_point.row][range.end_point.column..];
+                broken |= matches!(after.trim(), "" | "&");
                 breaks.push(Break {
                     point: range.end_point,
                     next_indent: get_indent(&lines[row]) + indent,
@@ -207,6 +221,7 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
                     BreakCollection {
                         breaks: breaks,
                         pattern_id: x.pattern_index,
+                        broken,
                     },
                 );
             }
@@ -215,7 +230,8 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
                     b.pattern_id == x.pattern_index,
                     "We should only match each node with the same pattern?"
                 );
-                b.breaks.extend(breaks)
+                b.breaks.extend(breaks);
+                b.broken |= broken;
             }
         };
     });
@@ -280,8 +296,9 @@ fn get_breaks_dfs(
 
     let mut breaks = possible_breaks.remove(&node.id());
 
-    let this_is_breakable =
-        breaks.is_some() && node.start_position().row == node.end_position().row;
+    // A node that spans several lines (e.g. because of a continued string
+    // literal) can be broken as long as it hasn't been broken already
+    let this_is_breakable = breaks.as_ref().is_some_and(|b| !b.broken);
 
     if !this_is_breakable && ancestor_is_breakable {
         // No reason to continue if parent is breakable, and this
@@ -364,7 +381,7 @@ mod test {
         }
     }
 
-    use super::{create_formatter, format_file};
+    use super::{create_formatter, format_file, format_source};
 
     lazy_static! {
         pub static ref TEST_FORMATTER: Language = create_formatter();
@@ -432,6 +449,47 @@ mod test {
 
         let string = String::from_utf8(buf)?;
         assert_snapshot!(snapshot, string);
+
+        Ok(())
+    }
+
+    #[test_case(Path::new("split-comments.f90"), 64, true, false)]
+    #[test_case(Path::new("split-comments.f90"), 64, false, false)]
+    #[test_case(Path::new("split-strings.f90"), 60, false, true)]
+    #[test_case(Path::new("split-strings.f90"), 60, false, false)]
+    #[test_case(Path::new("code-after-continued-string.f90"), 60, false, false)]
+    #[test_case(Path::new("long-names-with-brackets.f90"), 90, false, false)]
+    #[test_case(Path::new("preprocessor-long-headers.f90"), 70, false, false)]
+    #[test_case(Path::new("continued-strings.f90"), 100, true, true)]
+    fn format_with_options(
+        path: &Path,
+        line_length: usize,
+        split_comments: bool,
+        split_strings: bool,
+    ) -> Result<(), FormatterError> {
+        let mut snapshot = format!("{}_{line_length}", path.to_string_lossy());
+        if split_comments {
+            snapshot.push_str("_split-comments");
+        }
+        if split_strings {
+            snapshot.push_str("_split-strings");
+        }
+
+        let path = Path::new("./resources/test/fixtures/format").join(path);
+        let source = std::fs::read_to_string(path)?;
+        let settings = FormatSettings {
+            line_length,
+            split_comments,
+            split_strings,
+            ..FormatSettings::default()
+        };
+        let formatted = format_source(&source, &TEST_FORMATTER, &settings)?.join("\n");
+        apply_common_filters!();
+        assert_snapshot!(snapshot, formatted);
+
+        // Formatting again doesn't change anything
+        let reformatted = format_source(&formatted, &TEST_FORMATTER, &settings)?.join("\n");
+        assert_eq!(formatted, reformatted);
 
         Ok(())
     }

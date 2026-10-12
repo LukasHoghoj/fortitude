@@ -217,6 +217,10 @@ impl fmt::Display for CheckSettings {
 pub struct FormatSettings {
     pub line_length: usize,
     pub preview: PreviewMode,
+    /// Wrap comment lines exceeding the line length
+    pub split_comments: bool,
+    /// Split string literals to keep lines within the line length
+    pub split_strings: bool,
 }
 
 impl fmt::Display for FormatSettings {
@@ -228,6 +232,8 @@ impl fmt::Display for FormatSettings {
             fields = [
                 self.line_length,
                 self.preview,
+                self.split_comments,
+                self.split_strings,
             ]
         }
         Ok(())
@@ -240,6 +246,8 @@ impl Default for FormatSettings {
         Self {
             line_length: 100,
             preview: PreviewMode::default(),
+            split_comments: false,
+            split_strings: false,
         }
     }
 }

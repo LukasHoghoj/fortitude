@@ -1,0 +1,11 @@
+---
+source: crates/fortitude_formatter/src/lib.rs
+expression: formatted
+snapshot_kind: text
+---
+program p
+  print *, "abc mark! and more", 42
+  print *, "abc ! and word"
+  print *, "first part of the string ! second part starting with a bang"
+  print *, 'it''s a semicolon; inside', "and ! a bang &"
+end program
