@@ -993,6 +993,7 @@ dependencies = [
  "anyhow",
  "fortitude_linter",
  "insta",
+ "lazy-regex",
  "lazy_static",
  "log",
  "test-case",

@@ -433,3 +433,54 @@ _ @append_antispace
 (relational_expression operator: _ @prepend_space @append_space)
 ; '.not.'
 (logical_expression . _ @append_space . (_) .)
+
+; Attribute statements: 'external f, g', 'intent(in) :: a', 'save s', ...
+[
+ (variable_modification)
+ (cray_pointer_declaration)
+] @append_hardline
+(variable_modification (type_qualifier) @append_space)
+(save_statement "save" @append_space)
+(parameter_statement "parameter" @append_space)
+
+; Numbers with a kind ('3.14_dp') have nodes only for the kind, the digits
+; would be lost
+(number_literal) @leaf
+
+; enum, bind(c) ... end enum
+(enum_statement) @append_hardline @append_indent_start
+(enum_statement "enum" @append_antispace . ",")
+(end_enum_statement) @prepend_indent_end @append_hardline
+(end_enum_statement "end" @append_space . "enum")
+
+; Separate module procedures in submodules
+(module_procedure_statement) @append_hardline @append_indent_start
+(module_procedure_statement "module" @append_space . "procedure" @append_space)
+(end_module_procedure_statement) @prepend_indent_end @append_hardline
+(end_module_procedure_statement "end" @append_space . "procedure")
+(end_module_procedure_statement "procedure" @append_space . (name))
+
+; 'end block data' is not parsed correctly, keep it as it is
+(end_block_data_statement) @leaf
+(block_data) @append_hardline
+
+; critical ... end critical (and 'change team' statements)
+(coarray_critical_statement "critical" @append_hardline @append_indent_start)
+(end_coarray_critical_statement) @prepend_indent_end
+(end_coarray_critical_statement "end" @append_space . "critical")
+[
+ (coarray_critical_statement)
+ (end_coarray_critical_statement)
+ (coarray_team_statement)
+ (end_coarray_team_statement)
+] @append_hardline
+(end_coarray_team_statement "end" @append_space . "team")
+
+; sync all, sync images (...), lock (...), ...
+(coarray_statement . _ @append_space . _)
+
+; 'use, intrinsic :: ...'
+(use_statement "use" @append_antispace . ",")
+; 'implicit none (type, external)'
+(implicit_statement "(" @prepend_space @append_antispace)
+(implicit_statement _ @append_antispace . [")" ","])

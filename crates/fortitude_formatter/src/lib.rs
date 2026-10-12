@@ -494,6 +494,8 @@ mod test {
     #[test_case(Path::new("preprocessor-alternatives.f90"))]
     #[test_case(Path::new("fypp-directives.f90"))]
     #[test_case(Path::new("statements.f90"))]
+    #[test_case(Path::new("attribute-statements.f90"))]
+    #[test_case(Path::new("declarations-and-constructs.f90"))]
     fn format(path: &Path) -> Result<(), FormatterError> {
         let snapshot = format!("{}", path.to_string_lossy());
 
@@ -539,6 +541,8 @@ mod test {
     #[test_case(Path::new("preprocessor-long-headers.f90"), 70, false, false)]
     #[test_case(Path::new("continued-strings.f90"), 100, true, true)]
     #[test_case(Path::new("statements.f90"), 100, false, false)]
+    #[test_case(Path::new("attribute-statements.f90"), 100, false, false)]
+    #[test_case(Path::new("declarations-and-constructs.f90"), 100, false, false)]
     #[test_case(Path::new("continuation-comments.f90"), 100, false, false)]
     #[test_case(Path::new("continuation-comments.f90"), 40, false, false)]
     #[test_case(Path::new("line-length.f90"), 40, false, false)]
@@ -650,6 +654,111 @@ mod test {
             .filter(|line| line.len() > line_length)
             .collect();
         assert!(too_long.is_empty(), "lines too long: {too_long:#?}");
+        Ok(())
+    }
+
+    /// The tokens of Fortran source code, ignoring comments, preprocessor
+    /// lines and continuation lines, with statements separated by ";"
+    fn tokens(source: &str) -> Vec<String> {
+        // Join continuation lines, skipping comment and blank lines
+        let mut code = String::new();
+        let mut in_string = None;
+        let mut continued = false;
+        for line in source.lines() {
+            let trimmed = line.trim_start();
+            if in_string.is_none()
+                && (trimmed.is_empty()
+                    || trimmed.starts_with('!')
+                    || (!continued && trimmed.starts_with('#')))
+            {
+                continue;
+            }
+            let text = if continued {
+                trimmed.strip_prefix('&').unwrap_or(trimmed)
+            } else {
+                line
+            };
+            let scan = crate::continuation::scan_line(text, in_string);
+            in_string = scan.open_string;
+            let line_code = text[..scan.code_end].trim_end();
+            match line_code.strip_suffix('&') {
+                Some(line_code) => {
+                    code.push_str(line_code);
+                    if in_string.is_none() {
+                        code.push(' ');
+                    }
+                    continued = true;
+                }
+                None => {
+                    code.push_str(line_code);
+                    code.push('\n');
+                    continued = false;
+                }
+            }
+        }
+        let token = lazy_regex::regex!(
+            r#"^([A-Za-z0-9_]+|"([^"]|"")*"|'([^']|'')*'|\.[A-Za-z]+\.|\*\*|//|::|=>|==|/=|<=|>=|\(/|/\)|\S)"#
+        );
+        let mut result: Vec<String> = vec![];
+        for line in code.lines() {
+            let mut rest = line.trim_start();
+            while let Some(m) = token.find(rest) {
+                let text = m.as_str();
+                if text == "!" {
+                    break;
+                }
+                if text == ";" {
+                    if result.last().is_some_and(|t| t != ";") {
+                        result.push(";".to_string());
+                    }
+                } else if text.starts_with(['"', '\'']) {
+                    result.push(text.to_string());
+                } else {
+                    result.push(text.to_lowercase());
+                }
+                rest = rest[m.end()..].trim_start();
+            }
+            if result.last().is_some_and(|t| t != ";") {
+                result.push(";".to_string());
+            }
+        }
+        result
+    }
+
+    /// Formatting only changes whitespace, line breaks and comments: no tokens
+    /// are merged, split or lost
+    #[test]
+    fn tokens_preserved() -> Result<(), FormatterError> {
+        let settings = FormatSettings {
+            line_length: 60,
+            ..FormatSettings::default()
+        };
+        let mut fixtures: Vec<_> = std::fs::read_dir("./resources/test/fixtures/format")?
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        fixtures.sort();
+        let mut failures = vec![];
+        for path in fixtures {
+            let source = std::fs::read_to_string(&path)?;
+            let formatted = format_source(&source, &TEST_FORMATTER, &settings)?.join("\n");
+            let (before, after) = (tokens(&source), tokens(&formatted));
+            if before != after {
+                let first = before
+                    .iter()
+                    .zip(&after)
+                    .position(|(a, b)| a != b)
+                    .unwrap_or(before.len().min(after.len()));
+                let context =
+                    |t: &[String]| t[first.saturating_sub(5)..(first + 5).min(t.len())].join(" ");
+                failures.push(format!(
+                    "{}: '{}' became '{}'",
+                    path.display(),
+                    context(&before),
+                    context(&after)
+                ));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
         Ok(())
     }
 }

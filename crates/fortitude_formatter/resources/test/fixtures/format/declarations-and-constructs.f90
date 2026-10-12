@@ -1,0 +1,104 @@
+module broad_mod
+use iso_fortran_env, only: real64, int32 => int32
+use, intrinsic :: iso_c_binding
+implicit none (type, external)
+private
+public :: shape_t, area
+integer, parameter :: dp = selected_real_kind(15)
+enum, bind(c)
+enumerator :: red = 1, green
+end enum
+type, abstract :: shape_t
+real(dp) :: x
+contains
+procedure(area_if), deferred :: area
+procedure, pass(self) :: move
+generic :: assignment(=) => assign_shape
+final :: cleanup
+end type shape_t
+type, extends(shape_t) :: circle_t
+real(dp), allocatable :: r(:)
+class(shape_t), pointer :: next => null()
+procedure(area_if), pointer, nopass :: fp => null()
+end type
+abstract interface
+pure function area_if(self) result(a)
+import :: shape_t, dp
+class(shape_t), intent(in) :: self
+real(dp) :: a
+end function
+end interface
+interface area
+module procedure circle_area
+end interface area
+interface operator(.cross.)
+module procedure cross
+end interface
+real(dp), save :: total[*]
+contains
+elemental real(dp) function circle_area(r) result(a)
+real(dp), intent(in) :: r
+a = 3.14_dp*r**2
+end function circle_area
+recursive subroutine move(self, dx)
+class(shape_t), intent(inout) :: self
+real(dp), value :: dx
+type(circle_t) :: c
+character(len=10, kind=1) :: name
+character(10) :: other
+integer :: i, ios
+self%x = self%x + dx
+select type (self)
+class is (circle_t)
+call self%next%move(dx)
+end select
+critical
+total = total + 1
+end critical
+sync all
+lock (lck)
+open(newunit=i, file='f', iostat=ios, iomsg=name)
+read(i, '(a)', advance='no', iostat=ios) name
+write(i, 100) dx
+100 format(f10.3, 2x, a)
+call c_f_pointer(cptr, fptr, [10])
+c = circle_t(x=1.0_dp, r=null())
+if (allocated(c%r)) deallocate(c%r)
+block
+use other_mod, only: thing
+real :: local
+local = thing()
+end block
+associate (p => self%x, q => dx)
+p = q
+end associate
+return
+entry move2(self)
+end subroutine move
+impure elemental subroutine cleanup(self)
+type(shape_t), intent(inout) :: self
+end subroutine
+module function cross(a, b) result(c)
+type(shape_t), intent(in) :: a, b
+type(shape_t) :: c
+end function
+end module broad_mod
+submodule (broad_mod) broad_sub
+contains
+module procedure circle_area
+a = 0
+end procedure circle_area
+end submodule broad_sub
+block data init
+common /blk/ x
+data x / 1.0 /
+end block data
+program main
+use broad_mod
+implicit none
+integer :: n
+character(len=*), parameter :: fmt = '(a)'
+namelist /nml/ n
+n = 3; print fmt, 'x'
+stop
+end program main

@@ -1,0 +1,33 @@
+---
+source: crates/fortitude_formatter/src/lib.rs
+expression: string
+snapshot_kind: text
+---
+subroutine foo(a, b, f, g)
+  external f, g
+  external :: h
+  intrinsic sin, cos
+  intrinsic :: tan
+  optional a
+  optional :: b
+  real, allocatable :: x(:)
+  allocatable x
+  dimension y(10)
+  target y
+  pointer p
+  volatile v
+  value a
+  asynchronous w
+  contiguous x
+  protected z
+  intent(in) a
+  intent(out) :: b
+  parameter (n = 1)
+  save s
+  save :: t
+  equivalence(u, v)
+  common /blk/ c, d
+  data e /1/
+  bind(c) :: q
+  real :: x, y, p, v, w, z, s, t, u, c, d, e, q
+end subroutine
