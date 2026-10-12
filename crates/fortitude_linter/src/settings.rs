@@ -219,6 +219,8 @@ pub struct FormatSettings {
     pub preview: PreviewMode,
     /// Number of spaces per level of indentation
     pub indent_width: usize,
+    /// Indent comment lines starting in the first column like code
+    pub indent_col0_comments: bool,
     /// Wrap comment lines exceeding the line length
     pub split_comments: bool,
     /// Split string literals to keep lines within the line length
@@ -235,6 +237,7 @@ impl fmt::Display for FormatSettings {
                 self.line_length,
                 self.preview,
                 self.indent_width,
+                self.indent_col0_comments,
                 self.split_comments,
                 self.split_strings,
             ]
@@ -250,6 +253,7 @@ impl Default for FormatSettings {
             line_length: 100,
             preview: PreviewMode::default(),
             indent_width: 2,
+            indent_col0_comments: false,
             split_comments: false,
             split_strings: false,
         }

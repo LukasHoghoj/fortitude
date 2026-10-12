@@ -115,7 +115,7 @@ fn format_directory_in_place() -> anyhow::Result<()> {
     assert_eq!(fs::read_to_string(&formatted)?, FORMATTED);
     assert_eq!(
         fs::read_to_string(&long)?,
-        "program p\n  ! a comment that is far too long for\n  ! the line length we use here\nend program p\n"
+        "program p\n! a comment that is far too long for the\n! line length we use here\nend program p\n"
     );
     Ok(())
 }
@@ -135,6 +135,37 @@ fn format_with_indent() -> anyhow::Result<()> {
         do i = 1, 3
             print *, i
         end do
+    end program p
+
+    ----- stderr -----
+    ");
+    Ok(())
+}
+
+#[test]
+fn format_column0_comments() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    let test_file = tempdir.path().join("test.f90");
+    fs::write(&test_file, "program p\n! column 0\nx = 1\nend program p\n")?;
+
+    assert_cmd_snapshot!(format_command(&tempdir)?.arg("test.f90"), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    program p
+    ! column 0
+      x = 1
+    end program p
+
+    ----- stderr -----
+    ");
+    assert_cmd_snapshot!(format_command(&tempdir)?.arg("--indent-col0-comments").arg("test.f90"), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    program p
+      ! column 0
+      x = 1
     end program p
 
     ----- stderr -----

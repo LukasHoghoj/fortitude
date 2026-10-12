@@ -8,9 +8,51 @@
 use crate::continuation::scan_line;
 
 const MARKER: &str = "!fortitude-format-comment:";
+/// Marks comment lines starting in the first column
+const COLUMN0_MARKER: &str = "!fortitude-format-column0:";
 
 fn indent_of(line: &str) -> usize {
     line.len() - line.trim_start().len()
+}
+
+/// Mark comment lines starting in the first column, so that
+/// [`unmark_column0_comments`] can put them there again after formatting
+pub(crate) fn mark_column0_comments(lines: Vec<String>) -> Vec<String> {
+    let mut in_string = None;
+    lines
+        .into_iter()
+        .map(|line| {
+            // Markers of the formatter itself are indented by it
+            let is_comment = in_string.is_none()
+                && line.starts_with('!')
+                && !line.starts_with("!fortitude-format-");
+            in_string = scan_line(&line, in_string).open_string;
+            if is_comment {
+                format!("{COLUMN0_MARKER}{line}")
+            } else {
+                line
+            }
+        })
+        .collect()
+}
+
+/// Put the comment lines marked by [`mark_column0_comments`] in the first
+/// column again
+pub(crate) fn unmark_column0_comments(lines: Vec<String>) -> Vec<String> {
+    let mut result = Vec::with_capacity(lines.len());
+    for line in lines {
+        match line.split_once(COLUMN0_MARKER) {
+            Some((code, comment)) => {
+                // The formatter may have put the comment behind code
+                if !code.trim().is_empty() {
+                    result.push(code.trim_end().to_string());
+                }
+                result.push(comment.to_string());
+            }
+            None => result.push(line),
+        }
+    }
+    result
 }
 
 /// Move trailing comments of code lines to marker comments on the next line.
@@ -100,6 +142,42 @@ mod test {
 
     fn strings(lines: &[&str]) -> Vec<String> {
         lines.iter().map(|l| l.to_string()).collect()
+    }
+
+    #[test]
+    fn column0_comments() {
+        let lines = mark_column0_comments(strings(&[
+            "! header",
+            "  ! indented",
+            "print *, \"abc &",
+            "! not a comment\"",
+            "!fortitude-format-directive:0",
+        ]));
+        assert_eq!(
+            lines,
+            [
+                &format!("{COLUMN0_MARKER}! header"),
+                "  ! indented",
+                "print *, \"abc &",
+                "! not a comment\"",
+                "!fortitude-format-directive:0",
+            ]
+        );
+        // After formatting
+        let formatted = strings(&[
+            &format!("  {COLUMN0_MARKER}! header"),
+            "    ! indented",
+            &format!("  do i = 1, n {COLUMN0_MARKER}! behind code"),
+        ]);
+        assert_eq!(
+            unmark_column0_comments(formatted),
+            [
+                "! header",
+                "    ! indented",
+                "  do i = 1, n",
+                "! behind code"
+            ]
+        );
     }
 
     #[test]

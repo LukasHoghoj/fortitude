@@ -12,7 +12,10 @@ use std::{
 
 use anyhow::Result;
 
-use comments::{attach_trailing_comments, detach_trailing_comments};
+use comments::{
+    attach_trailing_comments, detach_trailing_comments, mark_column0_comments,
+    unmark_column0_comments,
+};
 use continuation::{
     indent_string_continuations, join_continuation_lines, rejoin_statements, restore_line_breaks,
 };
@@ -106,7 +109,13 @@ fn format_code(
 ) -> Result<Vec<String>, FormatterError> {
     // Continued strings are joined to be split again where necessary
     let joined = join_continuation_lines(source, settings.split_strings);
-    let (lines, comments) = detach_trailing_comments(joined.lines);
+    // Comment lines in the first column stay there
+    let lines = if settings.indent_col0_comments {
+        joined.lines
+    } else {
+        mark_column0_comments(joined.lines)
+    };
+    let (lines, comments) = detach_trailing_comments(lines);
     let format_input = lines.join("\n");
     let mut format_output = vec![];
 
@@ -124,6 +133,7 @@ fn format_code(
     let format_result = String::from_utf8(format_output).unwrap();
     let lines: Vec<String> = format_result.lines().map(|x| x.to_string()).collect();
 
+    let lines = unmark_column0_comments(lines);
     // Statements separated by ';' stay on one line
     let mut lines = rejoin_statements(lines);
     indent_string_continuations(&mut lines);
@@ -598,6 +608,26 @@ mod test {
         let reformatted = format_source(&formatted, &formatter, &settings)?.join("\n");
         assert_eq!(formatted, reformatted);
 
+        Ok(())
+    }
+
+    #[test_case(false)]
+    #[test_case(true)]
+    fn format_column0_comments(indent_col0_comments: bool) -> Result<(), FormatterError> {
+        let snapshot = format!("comments-column0.f90_indent-col0-{indent_col0_comments}");
+        let path = Path::new("./resources/test/fixtures/format/comments-column0.f90");
+        let source = std::fs::read_to_string(path)?;
+        let settings = FormatSettings {
+            indent_col0_comments,
+            ..FormatSettings::default()
+        };
+        let formatted = format_source(&source, &TEST_FORMATTER, &settings)?.join("\n");
+        apply_common_filters!();
+        assert_snapshot!(snapshot, formatted);
+
+        // Formatting again doesn't change anything
+        let reformatted = format_source(&formatted, &TEST_FORMATTER, &settings)?.join("\n");
+        assert_eq!(formatted, reformatted);
         Ok(())
     }
 

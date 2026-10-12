@@ -1,0 +1,20 @@
+!-----------------------------------------------------------------------
+! A banner at the top
+!-----------------------------------------------------------------------
+module m
+contains
+! Comment in column 0
+subroutine foo(a)
+integer :: a
+  ! An indented comment
+!a = 2  (commented-out code)
+a = 1 ! trailing
+do while (a > 0) ! loop
+!$omp critical
+a = a - 1
+!$omp end critical
+end do
+print *, "a continued &
+! string, not a comment"
+end subroutine foo
+end module m

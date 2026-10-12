@@ -627,6 +627,7 @@ impl CheckCommand {
             target_std: self.target_std,
             progress_bar: self.progress_bar,
             format_indent_width: None,
+            indent_col0_comments: None,
             split_comments: None,
             split_strings: None,
         };
@@ -663,6 +664,7 @@ struct ExplicitConfigOverrides {
     target_std: Option<FortranStandard>,
     progress_bar: Option<ProgressBar>,
     format_indent_width: Option<usize>,
+    indent_col0_comments: Option<bool>,
     split_comments: Option<bool>,
     split_strings: Option<bool>,
 }
@@ -724,6 +726,9 @@ impl ConfigurationTransformer for ExplicitConfigOverrides {
         }
         if self.format_indent_width.is_some() {
             config.format_indent_width = self.format_indent_width;
+        }
+        if self.indent_col0_comments.is_some() {
+            config.indent_col0_comments = self.indent_col0_comments;
         }
         if self.split_comments.is_some() {
             config.split_comments = self.split_comments;
@@ -826,6 +831,10 @@ pub struct FormatCommand {
     /// [default: 2]
     #[arg(long, value_name = "N", help_heading = "Format configuration")]
     pub indent: Option<usize>,
+    /// Indent comment lines starting in the first column like the code around them. By
+    /// default, they stay in the first column.
+    #[arg(long, action = SetTrue, help_heading = "Format configuration")]
+    pub indent_col0_comments: Option<bool>,
     /// Wrap comment lines exceeding the line length at whitespace, repeating the comment
     /// marker. Compiler and OpenMP/OpenACC directives (`!$omp`, `!$`, `!DIR$`, ...) and
     /// `allow` comments are never wrapped.
@@ -862,6 +871,7 @@ impl FormatCommand {
             line_length: self.line_length,
             preview: resolve_bool_arg(self.preview, self.no_preview).map(PreviewMode::from),
             format_indent_width: self.indent,
+            indent_col0_comments: self.indent_col0_comments,
             split_comments: self.split_comments,
             split_strings: self.split_strings,
             ..ExplicitConfigOverrides::default()
