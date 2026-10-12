@@ -1,4 +1,5 @@
 mod continuation;
+mod preprocessor;
 
 use std::{cmp::Ordering, collections::HashMap, io::Write, path::PathBuf};
 
@@ -6,6 +7,7 @@ use anyhow::Result;
 
 use continuation::{indent_string_continuations, join_continuation_lines};
 use fortitude_linter::settings::FormatSettings;
+use preprocessor::format_with_directives;
 use topiary_core::{FormatterError, Language, Operation, TopiaryQuery, formatter};
 use tree_sitter::{Point, Query, QueryCursor, StreamingIterator, Tree, TreeCursor};
 
@@ -57,6 +59,15 @@ pub fn format_file(
 
 /// Format Fortran source code, returning the formatted lines
 pub fn format_source(
+    source: &str,
+    language: &Language,
+    settings: &FormatSettings,
+) -> Result<Vec<String>, FormatterError> {
+    format_with_directives(source, |code| format_code(code, language, settings))
+}
+
+/// Format Fortran source code without preprocessor directives
+fn format_code(
     source: &str,
     language: &Language,
     settings: &FormatSettings,
@@ -387,6 +398,8 @@ mod test {
     #[test_case(Path::new("continued-strings.f90"))]
     #[test_case(Path::new("continued-string-after-semicolon.f90"))]
     #[test_case(Path::new("continuation-comments.f90"))]
+    #[test_case(Path::new("preprocessor-alternatives.f90"))]
+    #[test_case(Path::new("fypp-directives.f90"))]
     fn format(path: &Path) -> Result<(), FormatterError> {
         let snapshot = format!("{}", path.to_string_lossy());
 

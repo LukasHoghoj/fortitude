@@ -1,0 +1,50 @@
+module m
+#ifdef MPI
+use mpi
+#endif
+#ifdef EXTENDED
+type, extends(base) :: t
+#else
+type :: t
+#endif
+integer :: i
+end type t
+contains
+#ifdef A
+#ifdef B
+subroutine foo(a)
+#else
+subroutine foo(a, b)
+#endif
+#elif defined(C)
+subroutine foo(a, b, c)
+#else
+subroutine foo(a, b, c, d)
+#endif
+integer :: a
+#ifdef OMP
+block
+#endif
+call x()
+#ifdef OMP
+end block
+#endif
+end subroutine foo
+subroutine bar(a, b, c)
+integer :: a, b, c
+call baz(a, &
+#ifdef X
+  b, &
+#endif
+  c)
+#if defined(Y)
+#  ifdef Z
+a = 1
+#  else
+a = 2
+#  endif
+#else
+a = 3
+#endif
+end subroutine bar
+end module m

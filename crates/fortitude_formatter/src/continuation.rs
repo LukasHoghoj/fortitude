@@ -251,7 +251,11 @@ mod test {
         let source = "print *, \"abc &\n   &mark! and &\n   &more\", 42 ! end\n";
         assert_eq!(
             join_continuation_lines(source, false),
-            vec!["print *, \"abc &", "   &mark! and &", "   &more\", 42 ! end"]
+            vec![
+                "print *, \"abc &",
+                "   &mark! and &",
+                "   &more\", 42 ! end"
+            ]
         );
         assert_eq!(
             join_continuation_lines(source, true),
