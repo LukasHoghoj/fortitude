@@ -3,7 +3,12 @@ mod continuation;
 mod preprocessor;
 mod split;
 
-use std::{cmp::Ordering, collections::HashMap, io::Write, path::PathBuf};
+use std::{
+    cmp::Ordering,
+    collections::HashMap,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Result;
 
@@ -44,21 +49,37 @@ pub fn create_formatter() -> Language {
 //      - Implement TextProvider for Vec<String>?
 //      - Reuse parse / parse tree
 
-/// Format an individual file
+/// Format an individual file, writing the result to `output`
 pub fn format_file(
     file: PathBuf,
     language: &Language,
     settings: &FormatSettings,
     output: &mut impl Write,
 ) -> Result<(), FormatterError> {
-    println!("formatting {file:?}");
-
     let source = std::fs::read_to_string(&file)?;
     let lines = format_source(&source, language, settings)?;
 
     writeln!(output, "{}", lines.join("\n"))?;
 
     Ok(())
+}
+
+/// Format an individual file in place. The file is only written if
+/// formatting changes it. Returns whether the file was changed.
+pub fn format_file_in_place(
+    file: &Path,
+    language: &Language,
+    settings: &FormatSettings,
+) -> Result<bool, FormatterError> {
+    let source = std::fs::read_to_string(file)?;
+    let mut formatted = format_source(&source, language, settings)?.join("\n");
+    formatted.push('\n');
+
+    if formatted == source {
+        return Ok(false);
+    }
+    std::fs::write(file, formatted)?;
+    Ok(true)
 }
 
 /// Format Fortran source code, returning the formatted lines

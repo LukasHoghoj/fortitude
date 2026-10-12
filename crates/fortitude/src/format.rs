@@ -1,6 +1,9 @@
-use std::{io::BufWriter, process::ExitCode};
+use std::{
+    io::{BufWriter, Write},
+    process::ExitCode,
+};
 
-use fortitude_formatter::{create_formatter, format_file};
+use fortitude_formatter::{create_formatter, format_file, format_file_in_place};
 use fortitude_linter::settings::PreviewMode;
 use fortitude_workspace::resolver::fortran_files_in_path;
 
@@ -39,26 +42,66 @@ risks."
     let (paths, _resolver) =
         fortran_files_in_path(&cli.files, &None, &fortitude_config, &config_arguments)?;
 
+    let mut changed = 0;
+    let mut unchanged = 0;
+    let mut failed = 0;
+
+    let mut files = Vec::new();
     for path in paths {
-        let file = match path {
-            Ok(resolved_file) => resolved_file.into_path(),
+        match path {
+            Ok(resolved_file) => files.push(resolved_file.into_path()),
             Err(err) => {
-                println!("Error finding files to format: {err}");
-                return Ok(ExitCode::FAILURE);
+                eprintln!("Error finding files to format: {err}");
+                failed += 1;
             }
-        };
-
-        let output = std::io::stdout();
-        let mut buf_output = BufWriter::new(output);
-
-        match format_file(file, &language, &settings.format, &mut buf_output) {
-            Ok(_) => continue,
-            Err(err) => {
-                println!("Formatter error: {err}");
-                return Ok(ExitCode::FAILURE);
-            }
-        };
+        }
     }
 
-    Ok(ExitCode::SUCCESS)
+    let mut stdout = BufWriter::new(std::io::stdout());
+
+    for file in &files {
+        let result = if cli.in_place {
+            format_file_in_place(file, &language, &settings.format).map(|was_changed| {
+                if was_changed {
+                    changed += 1;
+                } else {
+                    unchanged += 1;
+                }
+            })
+        } else {
+            // Tell the files apart if there are several of them
+            if files.len() > 1 {
+                writeln!(stdout, "formatting {file:?}")?;
+            }
+            format_file(file.clone(), &language, &settings.format, &mut stdout)
+        };
+
+        if let Err(err) = result {
+            stdout.flush()?;
+            eprintln!("Formatter error in {}: {err}", file.display());
+            failed += 1;
+        }
+    }
+    stdout.flush()?;
+
+    if cli.in_place {
+        let plural = |n: usize| if n == 1 { "file" } else { "files" };
+        let mut summary = vec![
+            format!("{changed} {} reformatted", plural(changed)),
+            format!("{unchanged} {} left unchanged", plural(unchanged)),
+        ];
+        if failed > 0 {
+            summary.push(format!(
+                "{failed} {} could not be formatted",
+                plural(failed)
+            ));
+        }
+        println!("{}", summary.join(", "));
+    }
+
+    if failed > 0 {
+        Ok(ExitCode::FAILURE)
+    } else {
+        Ok(ExitCode::SUCCESS)
+    }
 }

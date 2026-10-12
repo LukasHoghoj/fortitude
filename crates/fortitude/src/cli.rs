@@ -804,6 +804,10 @@ pub struct FormatCommand {
     /// risks.
     #[arg(long, action = SetTrue)]
     pub i_understand_the_risks: Option<bool>,
+    /// Write the formatted code back to the files instead of printing it. Files are only
+    /// written if formatting changes them.
+    #[arg(long, action = SetTrue)]
+    pub in_place: Option<bool>,
     /// Enable preview mode; enables unstable formatting.
     /// Use `--no-preview` to disable.
     #[arg(long, overrides_with("no_preview"), action = SetTrue)]
@@ -828,6 +832,7 @@ pub struct FormatCommand {
 pub struct FormatArgs {
     pub files: Vec<PathBuf>,
     pub i_understand_the_risks: bool,
+    pub in_place: bool,
 }
 
 impl FormatCommand {
@@ -840,6 +845,7 @@ impl FormatCommand {
         let format_args = FormatArgs {
             files: self.files.unwrap_or_default(),
             i_understand_the_risks: self.i_understand_the_risks.unwrap_or_default(),
+            in_place: self.in_place.unwrap_or_default(),
         };
 
         let per_flag_overrides = ExplicitConfigOverrides {
