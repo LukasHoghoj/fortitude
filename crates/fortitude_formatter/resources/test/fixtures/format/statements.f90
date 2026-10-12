@@ -19,6 +19,8 @@ allocate (a(3), stat=i)
 deallocate (a)
 nullify (p)
 p => a
+found = a(1) > 0 .and. n > 0 .or. .not. found
+found = n .eq. 1 .neqv. n == 2
 format (A, I0)
 if (n > 0) write (*, *) n
 if (n > 0) then ! positive

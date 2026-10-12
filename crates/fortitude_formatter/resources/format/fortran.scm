@@ -423,3 +423,10 @@ _ @append_antispace
 (stop_statement ["error" "stop"] @append_space)
 ; goto, cycle, exit, ... followed by a label
 (keyword_statement _ @append_space . (_))
+
+; Logical and relational operators (also '.and.', '.eq.', ...) are surrounded
+; by spaces, e.g. '0 .and. x' must not become '0.and.x'
+(logical_expression operator: _ @prepend_space @append_space)
+(relational_expression operator: _ @prepend_space @append_space)
+; '.not.'
+(logical_expression . _ @append_space . (_) .)
