@@ -1,3 +1,4 @@
+mod comments;
 mod continuation;
 mod preprocessor;
 mod split;
@@ -6,6 +7,7 @@ use std::{cmp::Ordering, collections::HashMap, io::Write, path::PathBuf};
 
 use anyhow::Result;
 
+use comments::{attach_trailing_comments, detach_trailing_comments};
 use continuation::{indent_string_continuations, join_continuation_lines};
 use fortitude_linter::settings::FormatSettings;
 use preprocessor::format_with_directives;
@@ -75,7 +77,9 @@ fn format_code(
     settings: &FormatSettings,
 ) -> Result<Vec<String>, FormatterError> {
     // Continued strings are joined to be split again where necessary
-    let format_input = join_continuation_lines(source, settings.split_strings).join("\n");
+    let joined = join_continuation_lines(source, settings.split_strings);
+    let (joined, comments) = detach_trailing_comments(joined);
+    let format_input = joined.join("\n");
     let mut format_output = vec![];
 
     formatter(
@@ -97,6 +101,9 @@ fn format_code(
     if settings.split_strings {
         split_long_strings(&mut lines, settings.line_length, 2);
     }
+    // Comments making a line too long are put on a line of their own to be split
+    let line_length = settings.split_comments.then_some(settings.line_length);
+    let mut lines = attach_trailing_comments(lines, &comments, line_length);
     if settings.split_comments {
         split_long_comments(&mut lines, settings.line_length);
     }
@@ -463,6 +470,7 @@ mod test {
     #[test_case(Path::new("preprocessor-long-headers.f90"), 70, false, false)]
     #[test_case(Path::new("continued-strings.f90"), 100, true, true)]
     #[test_case(Path::new("statements.f90"), 100, false, false)]
+    #[test_case(Path::new("statements.f90"), 60, false, false)]
     #[test_case(Path::new("preprocessor-alternatives.f90"), 100, false, false)]
     fn format_with_options(
         path: &Path,

@@ -21,7 +21,7 @@ nullify (p)
 p => a
 format (A, I0)
 if (n > 0) write (*, *) n
-if (n > 0) then
+if (n > 0) then ! positive
 a = 1
 else if (n < 0) then
 a = 2
@@ -33,7 +33,7 @@ do j = 1, n, 2
 cycle outer
 end do
 end do outer
-do while (i > 0)
+do while (i > 0) ! count down
 i = i - 1
 exit
 end do
@@ -71,14 +71,15 @@ i = 0
 end select
 associate (x => a(1))
 x = 2
-end associate
+end associate ! x
 block
 integer :: k
 k = 1
 end block
 goto 10
 10 continue
-call bar(a)
+call bar(a) ! bar
+call a_subroutine_with_a_long_name(first_argument, second_argument, third_argument) ! long
 stop 1
 error stop 'failed'
 return

@@ -7,9 +7,7 @@ subroutine foo(a, b, c)
   integer :: a, b, c
   ! the first argument
   ! a comment line between continuation lines
-  call bar(a, b, c)
-  ! trailing comment
-  a = b + c
-  ! not continued &
+  call bar(a, b, c) ! trailing comment
+  a = b + c ! not continued &
   x = 1
 end subroutine

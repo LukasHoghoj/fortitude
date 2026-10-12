@@ -1,6 +1,7 @@
 ---
-source: crates/fortitude_linter/src/format.rs
+source: crates/fortitude_formatter/src/lib.rs
 expression: string
+snapshot_kind: text
 ---
 program test
   type simple
@@ -14,10 +15,8 @@ program test
     real(eb), allocatable, dimension(:, :, :) :: vals
     procedure(), pointer, nopass :: do_nothing => null()
   contains
-    procedure, nopass, non_overridable :: static_method
-    ! static method
-    procedure instance_method
-    ! instance method
+    procedure, nopass, non_overridable :: static_method ! static method
+    procedure instance_method ! instance method
     procedure, public, pass(self) :: pass_method
     generic, pass :: binding_name => method_name, method_name2
     generic, private :: assignment (=) => assign_method
