@@ -13,7 +13,7 @@ use std::{
 use anyhow::Result;
 
 use comments::{attach_trailing_comments, detach_trailing_comments};
-use continuation::{indent_string_continuations, join_continuation_lines};
+use continuation::{indent_string_continuations, join_continuation_lines, restore_line_breaks};
 use fortitude_linter::settings::FormatSettings;
 use preprocessor::format_with_directives;
 use split::{split_long_comments, split_long_strings};
@@ -99,8 +99,8 @@ fn format_code(
 ) -> Result<Vec<String>, FormatterError> {
     // Continued strings are joined to be split again where necessary
     let joined = join_continuation_lines(source, settings.split_strings);
-    let (joined, comments) = detach_trailing_comments(joined);
-    let format_input = joined.join("\n");
+    let (lines, comments) = detach_trailing_comments(joined.lines);
+    let format_input = lines.join("\n");
     let mut format_output = vec![];
 
     formatter(
@@ -118,6 +118,8 @@ fn format_code(
     let mut lines: Vec<String> = format_result.lines().map(|x| x.to_string()).collect();
 
     indent_string_continuations(&mut lines);
+    // Statements with comments on continued lines keep their line breaks
+    let mut lines = restore_line_breaks(lines, &joined.kept);
     break_lines(&mut lines, settings.line_length, 2);
     if settings.split_strings {
         split_long_strings(&mut lines, settings.line_length, 2);
@@ -230,7 +232,10 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
             } else if qc.index == i_break_after {
                 let row = qc.node.start_position().row;
                 let after = &lines[range.end_point.row][range.end_point.column..];
-                broken |= matches!(after.trim(), "" | "&");
+                // A line may end with '&' and a comment
+                let after = after.trim_start();
+                let after = after.strip_prefix('&').unwrap_or(after).trim_start();
+                broken |= after.is_empty() || after.starts_with('!');
                 breaks.push(Break {
                     point: range.end_point,
                     next_indent: get_indent(&lines[row]) + indent,
@@ -491,6 +496,8 @@ mod test {
     #[test_case(Path::new("preprocessor-long-headers.f90"), 70, false, false)]
     #[test_case(Path::new("continued-strings.f90"), 100, true, true)]
     #[test_case(Path::new("statements.f90"), 100, false, false)]
+    #[test_case(Path::new("continuation-comments.f90"), 100, false, false)]
+    #[test_case(Path::new("continuation-comments.f90"), 40, false, false)]
     #[test_case(Path::new("statements.f90"), 60, false, false)]
     #[test_case(Path::new("preprocessor-alternatives.f90"), 100, false, false)]
     fn format_with_options(

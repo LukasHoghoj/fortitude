@@ -52,13 +52,71 @@ fn indent_of(line: &str) -> usize {
     line.len() - line.trim_start().len()
 }
 
+const MARKER: &str = "!fortitude-format-continued:";
+
+/// A line break within a statement, kept because of comments
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct LineBreak {
+    /// Number of non-blank characters of the statement in front of the break
+    offset: usize,
+    /// Comment at the end of the line
+    comment: Option<String>,
+    /// Comment lines between this line and the next one
+    comment_lines: Vec<String>,
+    /// Whether the next line starts with '&'
+    leading_ampersand: bool,
+}
+
+/// A statement whose line breaks are restored after formatting, see
+/// [`restore_line_breaks`]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct KeptStatement {
+    breaks: Vec<LineBreak>,
+    /// Comment at the end of the last line
+    comment: String,
+    /// The non-blank characters of the statement, as passed to the formatter
+    nonblank: String,
+    /// Number of lines of the statement passed to the formatter (more than
+    /// one if it contains continued strings)
+    rows: usize,
+}
+
+/// Result of [`join_continuation_lines`]
+#[derive(Debug, Default)]
+pub(crate) struct Joined {
+    pub lines: Vec<String>,
+    pub kept: Vec<KeptStatement>,
+}
+
 /// A logical line being assembled from continuation lines
 #[derive(Default)]
 struct Statement {
     text: String,
     indent: usize,
-    /// Comments from lines other than the last one, which can't stay where they are
-    comments: Vec<String>,
+    breaks: Vec<LineBreak>,
+    /// Comment lines that can't stay where they are
+    moved_comments: Vec<String>,
+}
+
+impl Statement {
+    fn has_comments(&self) -> bool {
+        self.breaks
+            .iter()
+            .any(|b| b.comment.is_some() || !b.comment_lines.is_empty())
+    }
+
+    /// Record a line break at the end of the text so far
+    fn add_break(&mut self, comment: &str) {
+        self.breaks.push(LineBreak {
+            offset: count_nonblank(&self.text),
+            comment: (!comment.is_empty()).then(|| comment.to_string()),
+            ..Default::default()
+        });
+    }
+}
+
+fn count_nonblank(text: &str) -> usize {
+    text.chars().filter(|c| !c.is_whitespace()).count()
 }
 
 /// Join continuation lines so that each Fortran statement is on one line.
@@ -70,11 +128,13 @@ struct Statement {
 /// continued string are joined instead, which leaves the value of the string
 /// unchanged.
 ///
-/// A `!` within a string literal does not start a comment. Comments on lines
-/// that are continued, or between continuation lines, are moved in front of
-/// the statement.
-pub(crate) fn join_continuation_lines(source: &str, join_strings: bool) -> Vec<String> {
-    let mut result = Vec::new();
+/// A `!` within a string literal does not start a comment. The line breaks
+/// of statements with comments on continued lines, or comment lines between
+/// continuation lines, are kept: such statements are followed by a marker
+/// comment, and the line breaks and comments are put back by
+/// [`restore_line_breaks`] after formatting.
+pub(crate) fn join_continuation_lines(source: &str, join_strings: bool) -> Joined {
+    let mut result = Joined::default();
     // Statement continued from the previous line, and string literal open at its end
     let mut current: Option<Statement> = None;
     let mut in_string: Option<char> = None;
@@ -95,25 +155,25 @@ pub(crate) fn join_continuation_lines(source: &str, join_strings: bool) -> Vec<S
                     } else {
                         code.trim()
                     };
-                    current = Some(Statement {
+                    let mut statement = Statement {
                         text: code.to_string(),
                         indent: indent_of(line),
-                        comments: if comment.is_empty() {
-                            vec![]
-                        } else {
-                            vec![comment.to_string()]
-                        },
-                    });
+                        ..Default::default()
+                    };
+                    if scan.open_string.is_none() {
+                        statement.add_break(comment);
+                    }
+                    current = Some(statement);
                     in_string = scan.open_string;
                 }
                 // Comment or blank line
-                _ if code.trim().is_empty() => result.push(line.to_string()),
+                _ if code.trim().is_empty() => result.lines.push(line.to_string()),
                 // Not continued
                 _ => {
                     let statement = Statement {
                         text: code.trim_start().to_string(),
                         indent: indent_of(line),
-                        comments: vec![],
+                        ..Default::default()
                     };
                     emit_statement(statement, &line[scan.code_end..], &mut result);
                 }
@@ -144,7 +204,10 @@ pub(crate) fn join_continuation_lines(source: &str, join_strings: bool) -> Vec<S
         if trimmed.is_empty() || trimmed.starts_with('!') {
             // Comment or blank line between continuation lines
             if !trimmed.is_empty() {
-                statement.comments.push(trimmed.to_string());
+                match statement.breaks.last_mut() {
+                    Some(line_break) => line_break.comment_lines.push(trimmed.to_string()),
+                    None => statement.moved_comments.push(trimmed.to_string()),
+                }
             }
             current = Some(statement);
             continue;
@@ -152,7 +215,12 @@ pub(crate) fn join_continuation_lines(source: &str, join_strings: bool) -> Vec<S
 
         let rest = match strip_leading_ampersand(line) {
             // A token may be continued directly after a leading '&'
-            Some(rest) => rest,
+            Some(rest) => {
+                if let Some(line_break) = statement.breaks.last_mut() {
+                    line_break.leading_ampersand = true;
+                }
+                rest
+            }
             None => {
                 statement.text.push(' ');
                 trimmed
@@ -179,11 +247,11 @@ fn finish_line(
     rest: &str,
     scan: &LineScan,
     current: &mut Option<Statement>,
-    result: &mut Vec<String>,
+    result: &mut Joined,
 ) {
     let text_start = statement.text.len() - rest.len();
     let code = rest[..scan.code_end].trim_end();
-    let comment = rest[scan.code_end..].to_string();
+    let comment = &rest[scan.code_end..];
 
     match code.strip_suffix('&') {
         Some(code) => {
@@ -193,14 +261,14 @@ fn finish_line(
                 code.trim_end()
             };
             statement.text.truncate(text_start + code.len());
-            if !comment.is_empty() {
-                statement.comments.push(comment);
+            if scan.open_string.is_none() {
+                statement.add_break(comment);
             }
             *current = Some(std::mem::take(statement));
         }
         None => {
             statement.text.truncate(text_start + code.len());
-            emit_statement(std::mem::take(statement), &comment, result);
+            emit_statement(std::mem::take(statement), comment, result);
         }
     }
 }
@@ -237,30 +305,193 @@ fn split_statements(text: &str) -> Vec<&str> {
         .collect()
 }
 
-/// Add a complete statement, preceded by comments moved from continuation lines.
+/// Add a complete statement.
 ///
 /// Statements separated by ';' are put on lines of their own, as a line can't
-/// start with ';'.
-fn emit_statement(statement: Statement, comment: &str, result: &mut Vec<String>) {
+/// start with ';'. If a statement with comments on its continued lines can't
+/// keep its line breaks, the comments are put in front of it.
+fn emit_statement(statement: Statement, comment: &str, result: &mut Joined) {
     let indent = " ".repeat(statement.indent);
-    for moved in &statement.comments {
-        result.push(format!("{indent}{moved}"));
+    for moved in &statement.moved_comments {
+        result.lines.push(format!("{indent}{moved}"));
     }
-    let start = result.len();
-    for text in split_statements(&statement.text) {
+
+    let statements = split_statements(&statement.text);
+    if statement.has_comments() && statements.len() == 1 {
+        let text = statements[0];
         let mut lines = text.split('\n');
-        result.push(format!("{indent}{}", lines.next().unwrap_or_default()));
-        result.extend(lines.map(String::from));
+        result
+            .lines
+            .push(format!("{indent}{}", lines.next().unwrap_or_default()));
+        result.lines.extend(lines.map(String::from));
+        result
+            .lines
+            .push(format!("{indent}{MARKER}{}", result.kept.len()));
+        result.kept.push(KeptStatement {
+            breaks: statement.breaks,
+            comment: comment.to_string(),
+            nonblank: text.chars().filter(|c| !c.is_whitespace()).collect(),
+            rows: text.split('\n').count(),
+        });
+        return;
+    }
+
+    for line_break in &statement.breaks {
+        for moved in line_break.comment.iter().chain(&line_break.comment_lines) {
+            result.lines.push(format!("{indent}{moved}"));
+        }
+    }
+    let start = result.lines.len();
+    for text in statements {
+        let mut lines = text.split('\n');
+        result
+            .lines
+            .push(format!("{indent}{}", lines.next().unwrap_or_default()));
+        result.lines.extend(lines.map(String::from));
     }
     if !comment.is_empty() {
-        if result.len() == start {
-            result.push(format!("{indent}{comment}"));
+        if result.lines.len() == start {
+            result.lines.push(format!("{indent}{comment}"));
         } else {
-            let last = result.last_mut().unwrap();
+            let last = result.lines.last_mut().unwrap();
             last.push(' ');
             last.push_str(comment);
         }
     }
+}
+
+/// Byte position in `text` right after its `n`-th non-blank character
+fn position_after_nonblank(text: &str, n: usize) -> Option<usize> {
+    if n == 0 {
+        return Some(0);
+    }
+    text.char_indices()
+        .filter(|(_, c)| !c.is_whitespace())
+        .nth(n - 1)
+        .map(|(pos, c)| pos + c.len_utf8())
+}
+
+fn is_word_char(c: Option<char>) -> bool {
+    c.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.')
+}
+
+/// Split the formatted `text` of a statement at its original line breaks.
+/// Returns None if the formatted statement doesn't match the original one.
+fn split_kept_statement(text: &str, kept: &KeptStatement, indent: usize) -> Option<Vec<String>> {
+    let nonblank: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    if nonblank != kept.nonblank {
+        return None;
+    }
+
+    // Positions of the breaks, and whether they are within a token, which
+    // requires a leading '&' and no blank in front of the trailing one
+    let mut ends = vec![];
+    let mut within_token = vec![];
+    let mut start = 0;
+    for line_break in &kept.breaks {
+        let end = position_after_nonblank(text, line_break.offset)?.max(start);
+        within_token.push(
+            line_break.leading_ampersand
+                && is_word_char(text[..end].chars().last())
+                && is_word_char(text[end..].trim_start().chars().next()),
+        );
+        ends.push(end);
+        start = end;
+    }
+    ends.push(text.len());
+
+    let continuation_indent = " ".repeat(indent + 2);
+    let mut lines: Vec<String> = vec![];
+    let mut start = 0;
+    for (i, &end) in ends.iter().enumerate() {
+        let piece = &text[start..end];
+        let piece = if i == 0 {
+            piece.trim_end()
+        } else {
+            piece.trim()
+        };
+        let mut rows = piece.split('\n');
+        let first = rows.next().unwrap_or_default();
+        if i == 0 {
+            lines.push(first.to_string());
+        } else {
+            let ampersand = match (kept.breaks[i - 1].leading_ampersand, within_token[i - 1]) {
+                (false, _) => "",
+                (true, true) => "&",
+                (true, false) => "& ",
+            };
+            lines.push(format!("{continuation_indent}{ampersand}{first}"));
+        }
+        lines.extend(rows.map(String::from));
+
+        let last = lines.last_mut().unwrap();
+        match kept.breaks.get(i) {
+            Some(line_break) => {
+                last.push_str(if within_token[i] { "&" } else { " &" });
+                if let Some(comment) = &line_break.comment {
+                    last.push(' ');
+                    last.push_str(comment);
+                }
+                for comment in &line_break.comment_lines {
+                    lines.push(format!("{continuation_indent}{comment}"));
+                }
+            }
+            None => {
+                if !kept.comment.is_empty() {
+                    last.push(' ');
+                    last.push_str(&kept.comment);
+                }
+            }
+        }
+        start = end;
+    }
+    Some(lines)
+}
+
+/// Put back the line breaks and comments of the statements kept by
+/// [`join_continuation_lines`] into the formatted `lines`
+pub(crate) fn restore_line_breaks(lines: Vec<String>, kept: &[KeptStatement]) -> Vec<String> {
+    if kept.is_empty() {
+        return lines;
+    }
+    let mut result: Vec<String> = Vec::with_capacity(lines.len());
+    for line in lines {
+        let Some((code, id)) = line
+            .split_once(MARKER)
+            .and_then(|(code, id)| Some((code.trim_end(), id.trim().parse::<usize>().ok()?)))
+        else {
+            result.push(line);
+            continue;
+        };
+        if !code.trim().is_empty() {
+            // The formatter put the marker behind the code
+            result.push(code.to_string());
+        }
+        let kept = &kept[id];
+        let rows = kept.rows.min(result.len());
+        let statement = result.split_off(result.len() - rows);
+        let text = statement.join("\n");
+        let indent = indent_of(&text);
+        match split_kept_statement(&text, kept, indent) {
+            Some(split) => result.extend(split),
+            None => {
+                // Keep the formatted statement, with the comments in front of it
+                let indent = " ".repeat(indent);
+                for line_break in &kept.breaks {
+                    for comment in line_break.comment.iter().chain(&line_break.comment_lines) {
+                        result.push(format!("{indent}{comment}"));
+                    }
+                }
+                result.extend(statement);
+                if !kept.comment.is_empty() {
+                    let last = result.last_mut().unwrap();
+                    last.push(' ');
+                    last.push_str(&kept.comment);
+                }
+            }
+        }
+    }
+    result
 }
 
 /// Indent the continuation lines of continued string literals relative to the
@@ -301,7 +532,7 @@ mod test {
     fn join_continued_string() {
         let source = "print *, \"abc &\n   &mark! and &\n   &more\", 42 ! end\n";
         assert_eq!(
-            join_continuation_lines(source, false),
+            join_continuation_lines(source, false).lines,
             vec![
                 "print *, \"abc &",
                 "   &mark! and &",
@@ -309,17 +540,66 @@ mod test {
             ]
         );
         assert_eq!(
-            join_continuation_lines(source, true),
+            join_continuation_lines(source, true).lines,
             vec!["print *, \"abc mark! and more\", 42 ! end"]
         );
     }
 
     #[test]
-    fn join_with_comments() {
-        let source = "  call foo(a, & ! first\n  ! between\n    b, &\n    & c) ! last\n";
+    fn keep_line_breaks_with_comments() {
+        let source = "  call foo(a, & ! the first\n  ! between\n    b, &\n\n    & c) ! last\n";
+        let joined = join_continuation_lines(source, false);
         assert_eq!(
-            join_continuation_lines(source, false),
-            vec!["  ! first", "  ! between", "  call foo(a, b, c) ! last"]
+            joined.lines,
+            vec!["  call foo(a, b, c)", &format!("  {MARKER}0")]
+        );
+        // Formatting may change the whitespace
+        let formatted = vec![
+            "    call foo(a,  b,c)".to_string(),
+            format!("    {MARKER}0"),
+            "    x = 1".to_string(),
+        ];
+        assert_eq!(
+            restore_line_breaks(formatted, &joined.kept),
+            vec![
+                "    call foo(a, & ! the first",
+                "      ! between",
+                "      b, &",
+                "      & c) ! last",
+                "    x = 1",
+            ]
+        );
+    }
+
+    #[test]
+    fn keep_line_breaks_within_token() {
+        let source = "x = some_long_na& ! comment\n  &me + 1\n";
+        let joined = join_continuation_lines(source, false);
+        let formatted = vec!["x = some_long_name + 1".to_string(), format!("{MARKER}0")];
+        assert_eq!(
+            restore_line_breaks(formatted, &joined.kept),
+            vec!["x = some_long_na& ! comment", "  &me + 1"]
+        );
+    }
+
+    #[test]
+    fn keep_line_breaks_mismatch() {
+        let source = "call foo(a, & ! the first\n  b)\n";
+        let joined = join_continuation_lines(source, false);
+        // The formatter changed more than whitespace: keep its result
+        let formatted = vec!["call foo(a, c)".to_string(), format!("{MARKER}0")];
+        assert_eq!(
+            restore_line_breaks(formatted, &joined.kept),
+            vec!["! the first", "call foo(a, c)"]
+        );
+    }
+
+    #[test]
+    fn move_comments_of_multiple_statements() {
+        let source = "a = 1; call foo(a, & ! the first\n  b) ! last\n";
+        assert_eq!(
+            join_continuation_lines(source, false).lines,
+            vec!["! the first", "a = 1", "call foo(a, b) ! last"]
         );
     }
 
@@ -327,7 +607,7 @@ mod test {
     fn join_tokens() {
         let source = "real &\n  function f()\ninte&\n  &ger :: i\n! comment &\nx = 1\n";
         assert_eq!(
-            join_continuation_lines(source, false),
+            join_continuation_lines(source, false).lines,
             vec!["real function f()", "integer :: i", "! comment &", "x = 1"]
         );
     }
@@ -336,7 +616,7 @@ mod test {
     fn split_at_semicolons() {
         let source = "  a = 1; print *, 'a;b', \"c &\n  &;d\"; ; b = 2 ! comment;\n";
         assert_eq!(
-            join_continuation_lines(source, false),
+            join_continuation_lines(source, false).lines,
             vec![
                 "  a = 1",
                 "  print *, 'a;b', \"c &",

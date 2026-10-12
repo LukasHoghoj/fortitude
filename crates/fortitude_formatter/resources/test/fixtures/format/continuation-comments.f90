@@ -1,5 +1,7 @@
 subroutine foo(a, b, c)
 integer :: a, b, c
+integer :: var_a, & ! This is one variable
+          var_b ! This is another variable
 call bar(a, & ! the first argument
 ! a comment line between continuation lines
          b, &
@@ -8,4 +10,9 @@ call bar(a, & ! the first argument
 a = b &
   + c ! not continued &
 x = 1
+call a_long_subroutine_name(first_argument,second_argument, & ! first two
+     third_argument) ! third
+print *, "a continued &
+   &string", & ! comment after the string
+   x
 end subroutine
