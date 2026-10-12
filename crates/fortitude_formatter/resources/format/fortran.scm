@@ -14,7 +14,6 @@
  (subroutine_call)
  (derived_type_statement)
  (print_statement)
- "then"
  (variable_declaration)
  (common_statement)
  (data_statement)
@@ -152,12 +151,14 @@
  (derived_type_statement)
  (block_data_statement)
  (enumeration_type_statement)
- "then"
  "contains"
 ] @append_indent_start
 
+; A main program doesn't need a 'program' statement, only then is there an
+; indentation block to close
+(program (program_statement) (end_program_statement) @prepend_indent_end)
+
 [
- (end_program_statement)
  (end_module_statement)
  (end_subroutine_statement)
  (end_interface_statement)
@@ -304,7 +305,6 @@ _ @append_antispace
 
 ; if
 (elseif_clause "else" @append_space . "if" @append_space)
-(else_clause "else" @append_hardline @append_indent_start)
 
 ; do: the header ends with the loop control, or with "do" alone
 (do_statement !do_label "do" @append_space)
@@ -376,9 +376,6 @@ _ @append_antispace
  (rank_statement)
 ] @append_indent_end @append_hardline
 (case_statement "case" @append_space)
-(case_statement [")" (default)] @append_hardline @append_indent_start)
-(type_statement [")" (default)] @append_hardline @append_indent_start)
-(rank_statement [")" (default)] @append_hardline @append_indent_start)
 (type_statement ["type" "class"] @append_space . "is" @append_space)
 (type_statement "class" @append_space . (default))
 (type_statement "(" . (_) @prepend_antispace @append_antispace . ")")
@@ -390,15 +387,12 @@ _ @append_antispace
   (parenthesized_expression) @append_hardline @append_indent_start
   (end_where_statement)
 )
-(elsewhere_clause "elsewhere" @append_hardline @append_indent_start)
 
 ; forall
 (forall_statement "forall" @append_space)
 (forall_statement ")" @append_space)
 (forall_statement
   ")" @append_hardline @append_indent_start
-  .
-  (_)
   (end_forall_statement)
 )
 
@@ -484,3 +478,187 @@ _ @append_antispace
 ; 'implicit none (type, external)'
 (implicit_statement "(" @prepend_space @append_antispace)
 (implicit_statement _ @append_antispace . [")" ","])
+
+; The header of a block ends with a line break, after the block label if there
+; is one ('case (1) name', 'else name'). The body is indented. (Generated for
+; each construct: a query can't express 'not followed by a block label'.)
+(if_statement
+  "then" @append_hardline @append_indent_start
+  .
+  [(comment) (statement_label) (ERROR)
+   (assignment_statement) (pointer_association_statement) (subroutine_call)
+   (keyword_statement) (if_statement) (arithmetic_if_statement)
+   (where_statement) (forall_statement) (select_case_statement)
+   (select_type_statement) (select_rank_statement) (do_loop (do_statement !do_label))
+   (do_statement) (end_do_label_loop_statement do_label: (statement_label)) (format_statement)
+   (open_statement) (close_statement) (print_statement) (write_statement)
+   (read_statement) (inquire_statement) (stop_statement) (block_construct)
+   (associate_statement) (file_position_statement) (allocate_statement)
+   (deallocate_statement) (nullify_statement) (entry_statement)
+   (assign_statement) (coarray_statement) (coarray_team_statement)
+   (coarray_critical_statement) (call_expression) (include_statement)
+   (elseif_clause) (else_clause) (elsewhere_clause) (end_if_statement)
+   (end_where_statement) (end_coarray_team_statement)]
+)
+(if_statement "then" @append_hardline @append_indent_start .)
+(if_statement "then" @append_space . [(block_label) (parenthesized_expression)])
+(if_statement (block_label) @append_hardline @append_indent_start)
+(elseif_clause
+  "then" @append_hardline @append_indent_start
+  .
+  [(comment) (statement_label) (ERROR)
+   (assignment_statement) (pointer_association_statement) (subroutine_call)
+   (keyword_statement) (if_statement) (arithmetic_if_statement)
+   (where_statement) (forall_statement) (select_case_statement)
+   (select_type_statement) (select_rank_statement) (do_loop (do_statement !do_label))
+   (do_statement) (end_do_label_loop_statement do_label: (statement_label)) (format_statement)
+   (open_statement) (close_statement) (print_statement) (write_statement)
+   (read_statement) (inquire_statement) (stop_statement) (block_construct)
+   (associate_statement) (file_position_statement) (allocate_statement)
+   (deallocate_statement) (nullify_statement) (entry_statement)
+   (assign_statement) (coarray_statement) (coarray_team_statement)
+   (coarray_critical_statement) (call_expression) (include_statement)
+   (elseif_clause) (else_clause) (elsewhere_clause) (end_if_statement)
+   (end_where_statement) (end_coarray_team_statement)]
+)
+(elseif_clause "then" @append_hardline @append_indent_start .)
+(elseif_clause "then" @append_space . [(block_label) (parenthesized_expression)])
+(elseif_clause (block_label) @append_hardline @append_indent_start)
+(else_clause
+  "else" @append_hardline @append_indent_start
+  .
+  [(comment) (statement_label) (ERROR)
+   (assignment_statement) (pointer_association_statement) (subroutine_call)
+   (keyword_statement) (if_statement) (arithmetic_if_statement)
+   (where_statement) (forall_statement) (select_case_statement)
+   (select_type_statement) (select_rank_statement) (do_loop (do_statement !do_label))
+   (do_statement) (end_do_label_loop_statement do_label: (statement_label)) (format_statement)
+   (open_statement) (close_statement) (print_statement) (write_statement)
+   (read_statement) (inquire_statement) (stop_statement) (block_construct)
+   (associate_statement) (file_position_statement) (allocate_statement)
+   (deallocate_statement) (nullify_statement) (entry_statement)
+   (assign_statement) (coarray_statement) (coarray_team_statement)
+   (coarray_critical_statement) (call_expression) (include_statement)
+   (elseif_clause) (else_clause) (elsewhere_clause) (end_if_statement)
+   (end_where_statement) (end_coarray_team_statement)]
+)
+(else_clause "else" @append_hardline @append_indent_start .)
+(else_clause "else" @append_space . [(block_label) (parenthesized_expression)])
+(else_clause (block_label) @append_hardline @append_indent_start)
+(case_statement
+  [")" (default)] @append_hardline @append_indent_start
+  .
+  [(comment) (statement_label) (ERROR)
+   (assignment_statement) (pointer_association_statement) (subroutine_call)
+   (keyword_statement) (if_statement) (arithmetic_if_statement)
+   (where_statement) (forall_statement) (select_case_statement)
+   (select_type_statement) (select_rank_statement) (do_loop (do_statement !do_label))
+   (do_statement) (end_do_label_loop_statement do_label: (statement_label)) (format_statement)
+   (open_statement) (close_statement) (print_statement) (write_statement)
+   (read_statement) (inquire_statement) (stop_statement) (block_construct)
+   (associate_statement) (file_position_statement) (allocate_statement)
+   (deallocate_statement) (nullify_statement) (entry_statement)
+   (assign_statement) (coarray_statement) (coarray_team_statement)
+   (coarray_critical_statement) (call_expression) (include_statement)
+   (elseif_clause) (else_clause) (elsewhere_clause) (end_if_statement)
+   (end_where_statement) (end_coarray_team_statement)]
+)
+(case_statement [")" (default)] @append_hardline @append_indent_start .)
+(case_statement [")" (default)] @append_space . [(block_label) (parenthesized_expression)])
+(case_statement (block_label) @append_hardline @append_indent_start)
+(type_statement
+  [")" (default)] @append_hardline @append_indent_start
+  .
+  [(comment) (statement_label) (ERROR)
+   (assignment_statement) (pointer_association_statement) (subroutine_call)
+   (keyword_statement) (if_statement) (arithmetic_if_statement)
+   (where_statement) (forall_statement) (select_case_statement)
+   (select_type_statement) (select_rank_statement) (do_loop (do_statement !do_label))
+   (do_statement) (end_do_label_loop_statement do_label: (statement_label)) (format_statement)
+   (open_statement) (close_statement) (print_statement) (write_statement)
+   (read_statement) (inquire_statement) (stop_statement) (block_construct)
+   (associate_statement) (file_position_statement) (allocate_statement)
+   (deallocate_statement) (nullify_statement) (entry_statement)
+   (assign_statement) (coarray_statement) (coarray_team_statement)
+   (coarray_critical_statement) (call_expression) (include_statement)
+   (elseif_clause) (else_clause) (elsewhere_clause) (end_if_statement)
+   (end_where_statement) (end_coarray_team_statement)]
+)
+(type_statement [")" (default)] @append_hardline @append_indent_start .)
+(type_statement [")" (default)] @append_space . [(block_label) (parenthesized_expression)])
+(type_statement (block_label) @append_hardline @append_indent_start)
+(rank_statement
+  [")" (default)] @append_hardline @append_indent_start
+  .
+  [(comment) (statement_label) (ERROR)
+   (assignment_statement) (pointer_association_statement) (subroutine_call)
+   (keyword_statement) (if_statement) (arithmetic_if_statement)
+   (where_statement) (forall_statement) (select_case_statement)
+   (select_type_statement) (select_rank_statement) (do_loop (do_statement !do_label))
+   (do_statement) (end_do_label_loop_statement do_label: (statement_label)) (format_statement)
+   (open_statement) (close_statement) (print_statement) (write_statement)
+   (read_statement) (inquire_statement) (stop_statement) (block_construct)
+   (associate_statement) (file_position_statement) (allocate_statement)
+   (deallocate_statement) (nullify_statement) (entry_statement)
+   (assign_statement) (coarray_statement) (coarray_team_statement)
+   (coarray_critical_statement) (call_expression) (include_statement)
+   (elseif_clause) (else_clause) (elsewhere_clause) (end_if_statement)
+   (end_where_statement) (end_coarray_team_statement)]
+)
+(rank_statement [")" (default)] @append_hardline @append_indent_start .)
+(rank_statement [")" (default)] @append_space . [(block_label) (parenthesized_expression)])
+(rank_statement (block_label) @append_hardline @append_indent_start)
+(elsewhere_clause
+  ["elsewhere" (parenthesized_expression)] @append_hardline @append_indent_start
+  .
+  [(comment) (statement_label) (ERROR)
+   (assignment_statement) (pointer_association_statement) (subroutine_call)
+   (keyword_statement) (if_statement) (arithmetic_if_statement)
+   (where_statement) (forall_statement) (select_case_statement)
+   (select_type_statement) (select_rank_statement) (do_loop (do_statement !do_label))
+   (do_statement) (end_do_label_loop_statement do_label: (statement_label)) (format_statement)
+   (open_statement) (close_statement) (print_statement) (write_statement)
+   (read_statement) (inquire_statement) (stop_statement) (block_construct)
+   (associate_statement) (file_position_statement) (allocate_statement)
+   (deallocate_statement) (nullify_statement) (entry_statement)
+   (assign_statement) (coarray_statement) (coarray_team_statement)
+   (coarray_critical_statement) (call_expression) (include_statement)
+   (elseif_clause) (else_clause) (elsewhere_clause) (end_if_statement)
+   (end_where_statement) (end_coarray_team_statement)]
+)
+(elsewhere_clause ["elsewhere" (parenthesized_expression)] @append_hardline @append_indent_start .)
+(elsewhere_clause ["elsewhere" (parenthesized_expression)] @append_space . [(block_label) (parenthesized_expression)])
+(elsewhere_clause (block_label) @append_hardline @append_indent_start)
+(coarray_team_statement
+  (argument_list) @append_hardline @append_indent_start
+  .
+  [(comment) (statement_label) (ERROR)
+   (assignment_statement) (pointer_association_statement) (subroutine_call)
+   (keyword_statement) (if_statement) (arithmetic_if_statement)
+   (where_statement) (forall_statement) (select_case_statement)
+   (select_type_statement) (select_rank_statement) (do_loop (do_statement !do_label))
+   (do_statement) (end_do_label_loop_statement do_label: (statement_label)) (format_statement)
+   (open_statement) (close_statement) (print_statement) (write_statement)
+   (read_statement) (inquire_statement) (stop_statement) (block_construct)
+   (associate_statement) (file_position_statement) (allocate_statement)
+   (deallocate_statement) (nullify_statement) (entry_statement)
+   (assign_statement) (coarray_statement) (coarray_team_statement)
+   (coarray_critical_statement) (call_expression) (include_statement)
+   (elseif_clause) (else_clause) (elsewhere_clause) (end_if_statement)
+   (end_where_statement) (end_coarray_team_statement)]
+)
+(coarray_team_statement (argument_list) @append_hardline @append_indent_start .)
+
+; Labelled do loops: 'do 10 i = 1, n' ... '10 continue' (not indented)
+(do_statement "do" @append_space (statement_label_reference))
+(do_statement (statement_label_reference) @append_space)
+(end_do_label_loop_statement "end" @append_space . "do")
+
+; change team (...) ... end team
+(coarray_team_statement "change" @append_space . "team" @append_space)
+(end_coarray_team_statement) @prepend_indent_end
+; 'rank (*)' isn't parsed and may swallow the 'rank' of a following 'rank default'
+(rank_statement (default) @prepend_space)
+
+; Keep blank lines between statements (at most one in a row)
+(_) @allow_blank_line_before

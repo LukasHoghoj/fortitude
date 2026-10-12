@@ -1,0 +1,11 @@
+---
+source: crates/fortitude_formatter/src/lib.rs
+expression: formatted
+snapshot_kind: text
+---
+interface
+  subroutine s()
+  end subroutine
+end interface
+call s()
+end

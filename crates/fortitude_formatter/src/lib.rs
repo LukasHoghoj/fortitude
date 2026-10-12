@@ -98,7 +98,25 @@ pub fn format_source(
     language: &Language,
     settings: &FormatSettings,
 ) -> Result<Vec<String>, FormatterError> {
-    format_with_directives(source, |code| format_code(code, language, settings))
+    let lines = format_with_directives(source, |code| format_code(code, language, settings))?;
+    Ok(normalise_blank_lines(lines))
+}
+
+/// Remove trailing whitespace, blank lines at the start and end, and all but
+/// one of consecutive blank lines
+fn normalise_blank_lines(lines: Vec<String>) -> Vec<String> {
+    let mut result: Vec<String> = Vec::with_capacity(lines.len());
+    for line in lines {
+        let line = line.trim_end();
+        if line.is_empty() && result.last().is_none_or(|last| last.is_empty()) {
+            continue;
+        }
+        result.push(line.to_string());
+    }
+    while result.last().is_some_and(|last| last.is_empty()) {
+        result.pop();
+    }
+    result
 }
 
 /// Format Fortran source code without preprocessor directives
@@ -543,6 +561,9 @@ mod test {
     #[test_case(Path::new("statements.f90"), 100, false, false)]
     #[test_case(Path::new("attribute-statements.f90"), 100, false, false)]
     #[test_case(Path::new("declarations-and-constructs.f90"), 100, false, false)]
+    #[test_case(Path::new("blank-lines.f90"), 100, false, false)]
+    #[test_case(Path::new("main-program-without-statement.f90"), 100, false, false)]
+    #[test_case(Path::new("labelled-constructs.f90"), 100, false, false)]
     #[test_case(Path::new("continuation-comments.f90"), 100, false, false)]
     #[test_case(Path::new("continuation-comments.f90"), 40, false, false)]
     #[test_case(Path::new("line-length.f90"), 40, false, false)]

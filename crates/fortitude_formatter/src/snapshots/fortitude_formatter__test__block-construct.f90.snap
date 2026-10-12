@@ -1,11 +1,13 @@
 ---
-source: crates/fortitude_linter/src/format.rs
+source: crates/fortitude_formatter/src/lib.rs
 expression: string
+snapshot_kind: text
 ---
 program block_demo
   implicit none
   real :: y = 1
   print *, y
+
   block
     real :: x = 3.142
     print *, x
@@ -15,5 +17,6 @@ program block_demo
       print *, y
     end block inner
   end block
+
   print *, y
 end program block_demo

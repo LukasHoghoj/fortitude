@@ -1,8 +1,10 @@
 ---
-source: crates/fortitude_linter/src/format.rs
+source: crates/fortitude_formatter/src/lib.rs
 expression: string
+snapshot_kind: text
 ---
 PROGRAM TEST
 END PROGRAM
+
 PROGRAM TEST
 END PROGRAM TEST
