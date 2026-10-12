@@ -13,7 +13,9 @@ use std::{
 use anyhow::Result;
 
 use comments::{attach_trailing_comments, detach_trailing_comments};
-use continuation::{indent_string_continuations, join_continuation_lines, restore_line_breaks};
+use continuation::{
+    indent_string_continuations, join_continuation_lines, rejoin_statements, restore_line_breaks,
+};
 use fortitude_linter::settings::FormatSettings;
 use preprocessor::format_with_directives;
 use split::{split_at_blanks, split_long_comments, split_long_strings};
@@ -120,8 +122,10 @@ fn format_code(
     )?;
 
     let format_result = String::from_utf8(format_output).unwrap();
-    let mut lines: Vec<String> = format_result.lines().map(|x| x.to_string()).collect();
+    let lines: Vec<String> = format_result.lines().map(|x| x.to_string()).collect();
 
+    // Statements separated by ';' stay on one line
+    let mut lines = rejoin_statements(lines);
     indent_string_continuations(&mut lines);
     // Continuation lines are indented by one level, like the formatter does
     let indent = indent_width(language);

@@ -2,6 +2,4 @@
 source: crates/fortitude_formatter/src/lib.rs
 expression: string
 ---
-interface operator(+)
-  module procedure test_plus
-end interface
+interface operator(+); module procedure test_plus; end interface

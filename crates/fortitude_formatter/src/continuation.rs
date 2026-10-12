@@ -53,6 +53,8 @@ fn indent_of(line: &str) -> usize {
 }
 
 const MARKER: &str = "!fortitude-format-continued:";
+/// Marks a statement that followed the previous one after ';'
+const SEMICOLON_MARKER: &str = "!fortitude-format-semicolon";
 
 /// A line break within a statement, kept because of comments
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -307,8 +309,9 @@ fn split_statements(text: &str) -> Vec<&str> {
 
 /// Add a complete statement.
 ///
-/// Statements separated by ';' are put on lines of their own, as a line can't
-/// start with ';'. If a statement with comments on its continued lines can't
+/// Statements separated by ';' are formatted on lines of their own, with a
+/// marker comment in between, and put on one line again by
+/// [`rejoin_statements`]. If a statement with comments on its continued lines can't
 /// keep its line breaks, the comments are put in front of it.
 fn emit_statement(statement: Statement, comment: &str, result: &mut Joined) {
     let indent = " ".repeat(statement.indent);
@@ -342,7 +345,10 @@ fn emit_statement(statement: Statement, comment: &str, result: &mut Joined) {
         }
     }
     let start = result.lines.len();
-    for text in statements {
+    for (i, text) in statements.into_iter().enumerate() {
+        if i > 0 {
+            result.lines.push(format!("{indent}{SEMICOLON_MARKER}"));
+        }
         let mut lines = text.split('\n');
         result
             .lines
@@ -358,6 +364,31 @@ fn emit_statement(statement: Statement, comment: &str, result: &mut Joined) {
             last.push_str(comment);
         }
     }
+}
+
+/// Put statements that were separated by ';' on one line again
+pub(crate) fn rejoin_statements(lines: Vec<String>) -> Vec<String> {
+    let mut result: Vec<String> = Vec::with_capacity(lines.len());
+    let mut join_next = false;
+    for line in lines {
+        if let Some((code, _)) = line.split_once(SEMICOLON_MARKER) {
+            // The formatter may have put the marker behind the code
+            if !code.trim().is_empty() {
+                result.push(code.trim_end().to_string());
+            }
+            join_next = true;
+            continue;
+        }
+        match result.last_mut() {
+            Some(previous) if join_next => {
+                previous.push_str("; ");
+                previous.push_str(line.trim_start());
+            }
+            _ => result.push(line),
+        }
+        join_next = false;
+    }
+    result
 }
 
 /// Byte position in `text` right after its `n`-th non-blank character
@@ -609,7 +640,12 @@ mod test {
         let source = "a = 1; call foo(a, & ! the first\n  b) ! last\n";
         assert_eq!(
             join_continuation_lines(source, false).lines,
-            vec!["! the first", "a = 1", "call foo(a, b) ! last"]
+            vec![
+                "! the first",
+                "a = 1",
+                SEMICOLON_MARKER,
+                "call foo(a, b) ! last"
+            ]
         );
     }
 
@@ -625,14 +661,31 @@ mod test {
     #[test]
     fn split_at_semicolons() {
         let source = "  a = 1; print *, 'a;b', \"c &\n  &;d\"; ; b = 2 ! comment;\n";
+        let lines = join_continuation_lines(source, false).lines;
         assert_eq!(
-            join_continuation_lines(source, false).lines,
+            lines,
             vec![
                 "  a = 1",
+                &format!("  {SEMICOLON_MARKER}"),
                 "  print *, 'a;b', \"c &",
                 "&;d\"",
+                &format!("  {SEMICOLON_MARKER}"),
                 "  b = 2 ! comment;"
             ]
+        );
+        assert_eq!(
+            rejoin_statements(lines),
+            vec!["  a = 1; print *, 'a;b', \"c &", "&;d\"; b = 2 ! comment;"]
+        );
+        // The marker may end up behind the code
+        assert_eq!(
+            rejoin_statements(vec![
+                format!("do i = 1, n {SEMICOLON_MARKER}"),
+                "  a(i) = 0".to_string(),
+                format!("  {SEMICOLON_MARKER}"),
+                "end do".to_string(),
+            ]),
+            vec!["do i = 1, n; a(i) = 0; end do"]
         );
     }
 

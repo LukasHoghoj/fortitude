@@ -78,6 +78,9 @@ block
 integer :: k
 k = 1
 end block
+do i = 1, n; a(i) = 0; end do
+if (n > 0) i = 1; j = 2 ! two statements
+x=1;y=2;
 goto 10
 10 continue
 call bar(a) ! bar

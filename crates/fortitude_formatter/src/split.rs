@@ -117,6 +117,8 @@ fn find_blank_split(line: &str, line_length: usize, in_string: Option<char>) -> 
         bytes[pos] == b' '
             && states[pos].is_none()
             && !code[..pos].trim_end().ends_with('&')
+            // Keep statements following ';' on the line
+            && !code[..pos].trim_end().ends_with(';')
             && !code[pos..].trim().is_empty()
     })
 }
