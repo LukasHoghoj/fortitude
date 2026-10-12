@@ -1,0 +1,90 @@
+---
+source: crates/fortitude_formatter/src/lib.rs
+expression: string
+snapshot_kind: text
+---
+subroutine foo(a, n)
+  integer, allocatable :: a(:)
+  integer :: n, i, j
+  real, pointer :: p => null()
+  character(len = 10) :: s
+  namelist /nml/ n, i
+  save
+  write(*, *) 1, 'two'
+  write(unit = 10, fmt = '(A)') s
+  read(*, *) n
+  read *, n
+  open(unit = 1, file = 'x', status = 'old')
+  close(1)
+  inquire(file = 'x', exist = found)
+  rewind (1)
+  backspace 1
+  flush (1)
+  allocate(a(3), stat = i)
+  deallocate(a)
+  nullify(p)
+  p => a
+  format(A, I0)
+  if (n > 0) write(*, *) n
+  if (n > 0) then
+    a = 1
+  else if (n < 0) then
+    a = 2
+  else
+    a = 3
+  end if
+  outer: do i = 1, n
+    do j = 1, n, 2
+      cycle outer
+    end do
+  end do outer
+  do while (i > 0)
+    i = i - 1
+    exit
+  end do
+  do concurrent(i = 1:n)
+    a(i) = 0
+  end do
+  do
+    exit
+  end do
+  select case (n)
+  case (1)
+    i = 1
+  case (2:3, 5)
+    i = 2
+  case default
+    i = 0
+  end select
+  where (a > 0)
+    a = 1
+  elsewhere
+    a = 0
+  end where
+  where (a > 0) a = 2
+  forall (i = 1:n) a(i) = i
+  forall (i = 1:n, j = 1:n)
+    a(i) = j
+  end forall
+  select type (obj)
+  type is (integer)
+    i = 1
+  class is (base)
+    i = 2
+  class default
+    i = 0
+  end select
+  associate (x => a(1))
+    x = 2
+  end associate
+  block
+    integer :: k
+    k = 1
+  end block
+  goto 10
+  10 continue
+  call bar(a)
+  stop 1
+  error stop 'failed'
+  return
+end subroutine foo

@@ -8,7 +8,7 @@ program p
     "this one has a bang! and ""escaped quotes"" that we &
     &must keep intact", &
     42
-  print'(A, I0)', 'single quoted message which is also &
+  print '(A, I0)', 'single quoted message which is also &
     &quite long: ', &
     7
   call log_message( &

@@ -27,6 +27,20 @@ contains
   subroutine foo(a, b, c, d)
 #endif
     integer :: a
+#ifdef MPI
+    if (a > 0) then
+#else
+    if (a > 1) then
+#endif
+      a = 1
+    end if
+#ifdef OMP
+    do a = 1, 2
+#endif
+      call x()
+#ifdef OMP
+    end do
+#endif
 #ifdef OMP
     block
 #endif

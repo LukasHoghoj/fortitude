@@ -417,6 +417,7 @@ mod test {
     #[test_case(Path::new("continuation-comments.f90"))]
     #[test_case(Path::new("preprocessor-alternatives.f90"))]
     #[test_case(Path::new("fypp-directives.f90"))]
+    #[test_case(Path::new("statements.f90"))]
     fn format(path: &Path) -> Result<(), FormatterError> {
         let snapshot = format!("{}", path.to_string_lossy());
 
@@ -461,6 +462,8 @@ mod test {
     #[test_case(Path::new("long-names-with-brackets.f90"), 90, false, false)]
     #[test_case(Path::new("preprocessor-long-headers.f90"), 70, false, false)]
     #[test_case(Path::new("continued-strings.f90"), 100, true, true)]
+    #[test_case(Path::new("statements.f90"), 100, false, false)]
+    #[test_case(Path::new("preprocessor-alternatives.f90"), 100, false, false)]
     fn format_with_options(
         path: &Path,
         line_length: usize,
