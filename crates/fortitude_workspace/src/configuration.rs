@@ -267,6 +267,7 @@ pub struct Configuration {
     pub use_statements: Option<UseStatementsOptions>,
     pub complexity: Option<ComplexityOptions>,
     // Formatter
+    pub format_indent_width: Option<usize>,
     pub split_comments: Option<bool>,
     pub split_strings: Option<bool>,
 }
@@ -374,6 +375,7 @@ impl Configuration {
             complexity: check.complexity,
 
             // Formatter options can only be set on the command line so far
+            format_indent_width: None,
             split_comments: None,
             split_strings: None,
         }
@@ -479,6 +481,9 @@ impl Configuration {
                     .line_length
                     .unwrap_or(Settings::default().check.line_length),
                 preview,
+                indent_width: self
+                    .format_indent_width
+                    .unwrap_or(FormatSettings::default().indent_width),
                 split_comments: self.split_comments.unwrap_or_default(),
                 split_strings: self.split_strings.unwrap_or_default(),
             },
@@ -569,6 +574,7 @@ impl Configuration {
             line_too_long: self.line_too_long.or(config.line_too_long),
             use_statements: self.use_statements.or(config.use_statements),
             complexity: self.complexity.or(config.complexity),
+            format_indent_width: self.format_indent_width.or(config.format_indent_width),
             split_comments: self.split_comments.or(config.split_comments),
             split_strings: self.split_strings.or(config.split_strings),
         }

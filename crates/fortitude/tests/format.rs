@@ -119,3 +119,25 @@ fn format_directory_in_place() -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn format_with_indent() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    let test_file = tempdir.path().join("test.f90");
+    fs::write(&test_file, UNFORMATTED)?;
+
+    assert_cmd_snapshot!(format_command(&tempdir)?.arg("--indent=4").arg("test.f90"), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    program p
+        integer :: i ! counter
+        do i = 1, 3
+            print *, i
+        end do
+    end program p
+
+    ----- stderr -----
+    ");
+    Ok(())
+}

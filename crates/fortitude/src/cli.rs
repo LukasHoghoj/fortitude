@@ -626,6 +626,7 @@ impl CheckCommand {
             extend_fixable: self.extend_fixable,
             target_std: self.target_std,
             progress_bar: self.progress_bar,
+            format_indent_width: None,
             split_comments: None,
             split_strings: None,
         };
@@ -661,6 +662,7 @@ struct ExplicitConfigOverrides {
     extend_fixable: Option<Vec<RuleSelector>>,
     target_std: Option<FortranStandard>,
     progress_bar: Option<ProgressBar>,
+    format_indent_width: Option<usize>,
     split_comments: Option<bool>,
     split_strings: Option<bool>,
 }
@@ -719,6 +721,9 @@ impl ConfigurationTransformer for ExplicitConfigOverrides {
         }
         if self.output_format.is_some() {
             config.output_format = self.output_format;
+        }
+        if self.format_indent_width.is_some() {
+            config.format_indent_width = self.format_indent_width;
         }
         if self.split_comments.is_some() {
             config.split_comments = self.split_comments;
@@ -817,6 +822,10 @@ pub struct FormatCommand {
     /// Set the line-length.
     #[arg(long, help_heading = "Format configuration")]
     pub line_length: Option<usize>,
+    /// Number of spaces per level of indentation, also used for continuation lines
+    /// [default: 2]
+    #[arg(long, value_name = "N", help_heading = "Format configuration")]
+    pub indent: Option<usize>,
     /// Wrap comment lines exceeding the line length at whitespace, repeating the comment
     /// marker. Compiler and OpenMP/OpenACC directives (`!$omp`, `!$`, `!DIR$`, ...) and
     /// `allow` comments are never wrapped.
@@ -852,6 +861,7 @@ impl FormatCommand {
             file_extensions: self.file_extensions,
             line_length: self.line_length,
             preview: resolve_bool_arg(self.preview, self.no_preview).map(PreviewMode::from),
+            format_indent_width: self.indent,
             split_comments: self.split_comments,
             split_strings: self.split_strings,
             ..ExplicitConfigOverrides::default()

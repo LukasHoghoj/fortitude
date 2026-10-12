@@ -28,16 +28,21 @@ fn wrap_query() -> &'static str {
     include_str!("../resources/format/wrap.scm")
 }
 
-/// Create the topiary formatter
-pub fn create_formatter() -> Language {
+/// Create the topiary formatter, indenting by `indent_width` spaces per level
+pub fn create_formatter(indent_width: usize) -> Language {
     let grammar: topiary_tree_sitter_facade::Language = tree_sitter_fortran::LANGUAGE.into();
     let query = TopiaryQuery::new(&grammar, topiary_query()).expect("building topiary query");
     Language {
         name: "fortran".to_string(),
         query,
         grammar,
-        indent: None,
+        indent: Some(" ".repeat(indent_width)),
     }
+}
+
+/// Number of spaces per level of indentation of the formatter
+fn indent_width(language: &Language) -> usize {
+    language.indent.as_ref().map_or(2, String::len)
 }
 
 // TODOs:
@@ -118,14 +123,16 @@ fn format_code(
     let mut lines: Vec<String> = format_result.lines().map(|x| x.to_string()).collect();
 
     indent_string_continuations(&mut lines);
+    // Continuation lines are indented by one level, like the formatter does
+    let indent = indent_width(language);
     // Statements with comments on continued lines keep their line breaks
-    let mut lines = restore_line_breaks(lines, &joined.kept);
-    break_lines(&mut lines, settings.line_length, 2);
+    let mut lines = restore_line_breaks(lines, &joined.kept, indent);
+    break_lines(&mut lines, settings.line_length, indent);
     if settings.split_strings {
-        split_long_strings(&mut lines, settings.line_length, 2);
+        split_long_strings(&mut lines, settings.line_length, indent);
     }
     // Lines that are still too long are broken at blanks
-    split_at_blanks(&mut lines, settings.line_length, 2);
+    split_at_blanks(&mut lines, settings.line_length, indent);
     // Comments making a line too long are put on a line of their own
     let mut lines = attach_trailing_comments(
         lines,
@@ -439,7 +446,7 @@ mod test {
     use super::{create_formatter, format_file, format_source};
 
     lazy_static! {
-        pub static ref TEST_FORMATTER: Language = create_formatter();
+        pub static ref TEST_FORMATTER: Language = create_formatter(2);
     }
 
     #[test_case(Path::new("simple.f90"))]
@@ -553,6 +560,38 @@ mod test {
 
         // Formatting again doesn't change anything
         let reformatted = format_source(&formatted, &TEST_FORMATTER, &settings)?.join("\n");
+        assert_eq!(formatted, reformatted);
+
+        Ok(())
+    }
+
+    #[test_case(Path::new("statements.f90"), 4, 60)]
+    #[test_case(Path::new("continuation-comments.f90"), 4, 60)]
+    #[test_case(Path::new("preprocessor-alternatives.f90"), 3, 60)]
+    #[test_case(Path::new("line-length.f90"), 3, 40)]
+    fn format_with_indent(
+        path: &Path,
+        indent_width: usize,
+        line_length: usize,
+    ) -> Result<(), FormatterError> {
+        let snapshot = format!(
+            "{}_indent-{indent_width}_{line_length}",
+            path.to_string_lossy()
+        );
+        let path = Path::new("./resources/test/fixtures/format").join(path);
+        let source = std::fs::read_to_string(path)?;
+        let formatter = create_formatter(indent_width);
+        let settings = FormatSettings {
+            line_length,
+            indent_width,
+            ..FormatSettings::default()
+        };
+        let formatted = format_source(&source, &formatter, &settings)?.join("\n");
+        apply_common_filters!();
+        assert_snapshot!(snapshot, formatted);
+
+        // Formatting again doesn't change anything
+        let reformatted = format_source(&formatted, &formatter, &settings)?.join("\n");
         assert_eq!(formatted, reformatted);
 
         Ok(())

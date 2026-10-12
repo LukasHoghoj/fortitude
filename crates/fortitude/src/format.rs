@@ -37,7 +37,7 @@ risks."
         return Ok(ExitCode::SUCCESS);
     }
 
-    let language = create_formatter();
+    let language = create_formatter(settings.format.indent_width);
 
     let (paths, _resolver) =
         fortran_files_in_path(&cli.files, &None, &fortitude_config, &config_arguments)?;

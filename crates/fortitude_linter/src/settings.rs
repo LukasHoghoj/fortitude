@@ -217,6 +217,8 @@ impl fmt::Display for CheckSettings {
 pub struct FormatSettings {
     pub line_length: usize,
     pub preview: PreviewMode,
+    /// Number of spaces per level of indentation
+    pub indent_width: usize,
     /// Wrap comment lines exceeding the line length
     pub split_comments: bool,
     /// Split string literals to keep lines within the line length
@@ -232,6 +234,7 @@ impl fmt::Display for FormatSettings {
             fields = [
                 self.line_length,
                 self.preview,
+                self.indent_width,
                 self.split_comments,
                 self.split_strings,
             ]
@@ -246,6 +249,7 @@ impl Default for FormatSettings {
         Self {
             line_length: 100,
             preview: PreviewMode::default(),
+            indent_width: 2,
             split_comments: false,
             split_strings: false,
         }

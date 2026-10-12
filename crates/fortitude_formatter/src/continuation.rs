@@ -377,7 +377,12 @@ fn is_word_char(c: Option<char>) -> bool {
 
 /// Split the formatted `text` of a statement at its original line breaks.
 /// Returns None if the formatted statement doesn't match the original one.
-fn split_kept_statement(text: &str, kept: &KeptStatement, indent: usize) -> Option<Vec<String>> {
+fn split_kept_statement(
+    text: &str,
+    kept: &KeptStatement,
+    indent: usize,
+    indent_width: usize,
+) -> Option<Vec<String>> {
     let nonblank: String = text.chars().filter(|c| !c.is_whitespace()).collect();
     if nonblank != kept.nonblank {
         return None;
@@ -400,7 +405,7 @@ fn split_kept_statement(text: &str, kept: &KeptStatement, indent: usize) -> Opti
     }
     ends.push(text.len());
 
-    let continuation_indent = " ".repeat(indent + 2);
+    let continuation_indent = " ".repeat(indent + indent_width);
     let mut lines: Vec<String> = vec![];
     let mut start = 0;
     for (i, &end) in ends.iter().enumerate() {
@@ -449,8 +454,13 @@ fn split_kept_statement(text: &str, kept: &KeptStatement, indent: usize) -> Opti
 }
 
 /// Put back the line breaks and comments of the statements kept by
-/// [`join_continuation_lines`] into the formatted `lines`
-pub(crate) fn restore_line_breaks(lines: Vec<String>, kept: &[KeptStatement]) -> Vec<String> {
+/// [`join_continuation_lines`] into the formatted `lines`. Continuation lines
+/// are indented by `indent_width` relative to the start of the statement.
+pub(crate) fn restore_line_breaks(
+    lines: Vec<String>,
+    kept: &[KeptStatement],
+    indent_width: usize,
+) -> Vec<String> {
     if kept.is_empty() {
         return lines;
     }
@@ -472,7 +482,7 @@ pub(crate) fn restore_line_breaks(lines: Vec<String>, kept: &[KeptStatement]) ->
         let statement = result.split_off(result.len() - rows);
         let text = statement.join("\n");
         let indent = indent_of(&text);
-        match split_kept_statement(&text, kept, indent) {
+        match split_kept_statement(&text, kept, indent, indent_width) {
             Some(split) => result.extend(split),
             None => {
                 // Keep the formatted statement, with the comments in front of it
@@ -560,7 +570,7 @@ mod test {
             "    x = 1".to_string(),
         ];
         assert_eq!(
-            restore_line_breaks(formatted, &joined.kept),
+            restore_line_breaks(formatted, &joined.kept, 2),
             vec![
                 "    call foo(a, & ! the first",
                 "      ! between",
@@ -577,7 +587,7 @@ mod test {
         let joined = join_continuation_lines(source, false);
         let formatted = vec!["x = some_long_name + 1".to_string(), format!("{MARKER}0")];
         assert_eq!(
-            restore_line_breaks(formatted, &joined.kept),
+            restore_line_breaks(formatted, &joined.kept, 2),
             vec!["x = some_long_na& ! comment", "  &me + 1"]
         );
     }
@@ -589,7 +599,7 @@ mod test {
         // The formatter changed more than whitespace: keep its result
         let formatted = vec!["call foo(a, c)".to_string(), format!("{MARKER}0")];
         assert_eq!(
-            restore_line_breaks(formatted, &joined.kept),
+            restore_line_breaks(formatted, &joined.kept, 2),
             vec!["! the first", "call foo(a, c)"]
         );
     }
