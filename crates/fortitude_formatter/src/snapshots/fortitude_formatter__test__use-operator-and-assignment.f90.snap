@@ -1,9 +1,10 @@
 ---
-source: crates/fortitude_linter/src/format.rs
+source: crates/fortitude_formatter/src/lib.rs
 expression: string
+snapshot_kind: text
 ---
 module test
-  use other, only : operator(==), assignment (=)
+  use other, only: operator(==), assignment (=)
   public :: assignment (=)
   private operator(==)
 end module

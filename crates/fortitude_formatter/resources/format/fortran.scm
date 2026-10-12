@@ -128,6 +128,8 @@
 (interface_statement _ @append_space)
 (use_statement _ @append_space)
 (included_items _ @append_space)
+; 'only: a, b'
+(included_items "only" @append_antispace . ":")
 (private_statement _ @append_space)
 (public_statement _ @append_space)
 (end_interface_statement _ @append_space)
@@ -662,3 +664,6 @@ _ @append_antispace
 
 ; Keep blank lines between statements (at most one in a row)
 (_) @allow_blank_line_before
+
+; 'procedure(iface) f' (declaration without '::')
+(variable_declaration (procedure) @append_space)

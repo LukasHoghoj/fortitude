@@ -4,7 +4,7 @@ expression: formatted
 snapshot_kind: text
 ---
 module broad_mod
-  use iso_fortran_env, only : real64, int32 => int32
+  use iso_fortran_env, only: real64, int32 => int32
   use, intrinsic :: iso_c_binding
   implicit none(type, external)
   private
@@ -70,7 +70,7 @@ contains
     c = circle_t(x = 1.0_dp, r = null())
     if (allocated(c%r)) deallocate(c%r)
     block
-      use other_mod, only : thing
+      use other_mod, only: thing
       real :: local
       local = thing()
     end block

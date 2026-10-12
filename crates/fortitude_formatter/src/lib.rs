@@ -564,6 +564,8 @@ mod test {
     #[test_case(Path::new("blank-lines.f90"), 100, false, false)]
     #[test_case(Path::new("main-program-without-statement.f90"), 100, false, false)]
     #[test_case(Path::new("labelled-constructs.f90"), 100, false, false)]
+    #[test_case(Path::new("procedure-arguments.f90"), 100, false, false)]
+    #[test_case(Path::new("procedure-arguments.f90"), 60, false, false)]
     #[test_case(Path::new("continuation-comments.f90"), 100, false, false)]
     #[test_case(Path::new("continuation-comments.f90"), 40, false, false)]
     #[test_case(Path::new("line-length.f90"), 40, false, false)]

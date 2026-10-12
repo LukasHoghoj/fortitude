@@ -1,0 +1,83 @@
+---
+source: crates/fortitude_formatter/src/lib.rs
+expression: formatted
+snapshot_kind: text
+---
+module integration
+  implicit none
+  abstract interface
+    function func_iface(x) result(y)
+      real, intent(in) :: x
+      real :: y
+    end function func_iface
+  end interface
+  type :: solver_t
+    procedure(func_iface), pointer, nopass :: f => null()
+  end type
+contains
+  real function integrate(f, a, b, g, h, p)
+    procedure(func_iface) :: f
+    procedure(func_iface), optional :: g
+    procedure(real) :: h
+    procedure(), pointer, intent(in) :: p
+    real, intent(in) :: a, b
+    real, external :: ext
+    procedure(func_iface), pointer :: fp => null()
+    integrate = (f(a) + f(b)) / 2
+    fp => f
+    if (present(g)) integrate = integrate + g(a)
+  end function integrate
+  subroutine run(s)
+    type(solver_t), intent(inout) :: s
+    real :: r
+    r = integrate(square, 0.0, 1.0, h = square, p = null())
+    r = s%f(2.0)
+    call apply(f = square)
+  end subroutine run
+  real function square(x)
+    real, intent(in) :: x
+    square = x**2
+  end function square
+end module integration
+module m2
+contains
+  subroutine a(f, g, h, k)
+    procedure(func_iface) f
+    procedure(func_iface) :: g
+    procedure(func_iface), intent(in), optional, pointer &
+      :: h
+    external k
+    real k
+  end subroutine a
+  subroutine b(f)
+    interface
+      function f(x)
+        real :: x, f
+      end function f
+    end interface
+    real :: y
+    y = f(1.0)
+  end subroutine b
+  subroutine c( &
+    callback_function_with_a_long_name, &
+    another_callback_function_name)
+    procedure(an_abstract_interface_with_long_name), &
+      pointer, intent(in) :: &
+      callback_function_with_a_long_name
+    procedure(an_abstract_interface_with_long_name) :: &
+      another_callback_function_name
+    call callback_function_with_a_long_name( &
+      another_callback_function_name, &
+      1.0, &
+      2.0, &
+      3.0)
+  end subroutine c
+  subroutine d(f, g)
+    procedure(func_iface) :: f, g
+  end subroutine d
+end module m2
+module m3
+  use a, only: my_subroutine
+  use b, only: x, y => z
+  use c, only:
+end module

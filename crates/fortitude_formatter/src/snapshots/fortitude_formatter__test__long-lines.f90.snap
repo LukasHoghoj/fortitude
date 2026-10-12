@@ -5,9 +5,9 @@ snapshot_kind: text
 ---
 program mod1
 
-  use mod, only : abc, def
+  use mod, only: abc, def
 
-  use mod, only : &
+  use mod, only: &
     abc, &
     def, &
     aaa, &

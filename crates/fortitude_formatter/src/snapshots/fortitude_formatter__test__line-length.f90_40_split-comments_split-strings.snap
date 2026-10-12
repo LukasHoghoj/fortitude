@@ -4,7 +4,7 @@ expression: formatted
 snapshot_kind: text
 ---
 module long_module_name
-  use some_module, only : &
+  use some_module, only: &
     first_imported_name, &
     second_imported_name, &
     third_name
