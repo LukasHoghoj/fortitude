@@ -1,0 +1,37 @@
+module long_module_name
+use some_module, only: first_imported_name, second_imported_name, third_name
+implicit none
+integer, parameter :: first_parameter = 1, second_parameter = 2, third_parameter = 3
+real(kind=8), dimension(:), allocatable, target :: an_allocatable_array_variable
+type :: a_type
+integer :: first_component, second_component, third_component, fourth_comp
+end type a_type
+contains
+subroutine a_subroutine(first_argument, second_argument, third_argument, fourth)
+integer, intent(in) :: first_argument, second_argument, third_argument, fourth
+logical :: flag
+real :: result_value
+character(len=:), allocatable :: text
+result_value = first_argument * second_argument + third_argument * fourth - 1
+flag = first_argument > second_argument .and. third_argument < fourth .or. flag
+if (first_argument > second_argument .and. third_argument < fourth) then
+result_value = 1
+end if
+do while (first_argument > second_argument .and. third_argument < fourth)
+exit
+end do
+text = 'first part of the text ' // 'second part of the text ' // 'third'
+result_value = some_function(first_argument, second_argument) + other_func(x)
+call a_long_subroutine_name(first_argument=first_argument, second=second_argument)
+an_allocatable_array_variable = [first_argument, second_argument, third_argument]
+result_value = a_type_variable%first_component%second_component%third_component
+result_value = first_argument ! a trailing comment that makes this line too long
+print *, 'a string that is too long to fit on the line at all, really very long'
+write(*, *) first_argument, second_argument, third_argument, fourth, flag, text
+allocate(an_allocatable_array_variable(first_argument * second_argument + 1))
+end subroutine a_subroutine
+function a_function_with_a_long_name(first_argument, second_argument) result(res)
+integer :: first_argument, second_argument, res
+res = 0
+end function a_function_with_a_long_name
+end module long_module_name

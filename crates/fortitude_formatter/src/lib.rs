@@ -16,7 +16,7 @@ use comments::{attach_trailing_comments, detach_trailing_comments};
 use continuation::{indent_string_continuations, join_continuation_lines, restore_line_breaks};
 use fortitude_linter::settings::FormatSettings;
 use preprocessor::format_with_directives;
-use split::{split_long_comments, split_long_strings};
+use split::{split_at_blanks, split_long_comments, split_long_strings};
 use topiary_core::{FormatterError, Language, Operation, TopiaryQuery, formatter};
 use tree_sitter::{Point, Query, QueryCursor, StreamingIterator, Tree, TreeCursor};
 
@@ -124,9 +124,15 @@ fn format_code(
     if settings.split_strings {
         split_long_strings(&mut lines, settings.line_length, 2);
     }
-    // Comments making a line too long are put on a line of their own to be split
-    let line_length = settings.split_comments.then_some(settings.line_length);
-    let mut lines = attach_trailing_comments(lines, &comments, line_length);
+    // Lines that are still too long are broken at blanks
+    split_at_blanks(&mut lines, settings.line_length, 2);
+    // Comments making a line too long are put on a line of their own
+    let mut lines = attach_trailing_comments(
+        lines,
+        &comments,
+        settings.line_length,
+        settings.split_comments,
+    );
     if settings.split_comments {
         split_long_comments(&mut lines, settings.line_length);
     }
@@ -208,6 +214,7 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
 
     let i_root = query.capture_index_for_name("root").unwrap();
     let i_break_after = query.capture_index_for_name("break-after").unwrap();
+    let i_no_break = query.capture_index_for_name("no-break").unwrap();
 
     let mut cursor = QueryCursor::new();
 
@@ -217,8 +224,15 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
     let matches = cursor.matches(&query, tree.root_node(), text.as_bytes());
 
     let mut possible_breaks = HashMap::<usize, BreakCollection>::new();
+    // Byte ranges of the nodes with breaks, and of those not to break within
+    let mut break_ranges = HashMap::<usize, std::ops::Range<usize>>::new();
+    let mut no_break_ranges = vec![];
 
     matches.for_each(|x| {
+        if let Some(qc) = x.captures.iter().find(|qc| qc.index == i_no_break) {
+            no_break_ranges.push(qc.node.byte_range());
+            return;
+        }
         let mut break_node_id = None;
         let mut breaks = vec![];
         let mut broken = false;
@@ -229,6 +243,7 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
                     break_node_id.replace(qc.node.id()) == None,
                     "Should only be one root node"
                 );
+                break_ranges.insert(qc.node.id(), qc.node.byte_range());
             } else if qc.index == i_break_after {
                 let row = qc.node.start_position().row;
                 let after = &lines[range.end_point.row][range.end_point.column..];
@@ -267,6 +282,13 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
                 b.broken |= broken;
             }
         };
+    });
+
+    possible_breaks.retain(|id, _| {
+        let range = &break_ranges[id];
+        !no_break_ranges
+            .iter()
+            .any(|no_break| no_break.start <= range.start && range.end <= no_break.end)
     });
 
     let mut breaks: Vec<Break> = get_breaks(&tree, &long_lines, &mut possible_breaks)
@@ -498,6 +520,9 @@ mod test {
     #[test_case(Path::new("statements.f90"), 100, false, false)]
     #[test_case(Path::new("continuation-comments.f90"), 100, false, false)]
     #[test_case(Path::new("continuation-comments.f90"), 40, false, false)]
+    #[test_case(Path::new("line-length.f90"), 40, false, false)]
+    #[test_case(Path::new("line-length.f90"), 40, true, true)]
+    #[test_case(Path::new("line-length.f90"), 60, false, false)]
     #[test_case(Path::new("statements.f90"), 60, false, false)]
     #[test_case(Path::new("preprocessor-alternatives.f90"), 100, false, false)]
     fn format_with_options(
@@ -530,6 +555,28 @@ mod test {
         let reformatted = format_source(&formatted, &TEST_FORMATTER, &settings)?.join("\n");
         assert_eq!(formatted, reformatted);
 
+        Ok(())
+    }
+
+    /// With strings and comments split, no line exceeds the line length
+    #[test_case(40)]
+    #[test_case(60)]
+    #[test_case(80)]
+    fn line_length_respected(line_length: usize) -> Result<(), FormatterError> {
+        let path = Path::new("./resources/test/fixtures/format/line-length.f90");
+        let source = std::fs::read_to_string(path)?;
+        let settings = FormatSettings {
+            line_length,
+            split_comments: true,
+            split_strings: true,
+            ..FormatSettings::default()
+        };
+        let formatted = format_source(&source, &TEST_FORMATTER, &settings)?;
+        let too_long: Vec<&String> = formatted
+            .iter()
+            .filter(|line| line.len() > line_length)
+            .collect();
+        assert!(too_long.is_empty(), "lines too long: {too_long:#?}");
         Ok(())
     }
 }

@@ -11,5 +11,6 @@ program p
     gamma_value, &
     delta_value, &
     epsilon_value
-  print *, "some words some words some words some words some words some words "
+  print *, &
+    "some words some words some words some words some words some words "
 end program

@@ -96,6 +96,56 @@ pub(crate) fn split_long_strings(lines: &mut Vec<String>, line_length: usize, in
     }
 }
 
+/// Find the last blank outside of string literals and comments at which
+/// `line` can be broken, so that the first part followed by ' &' is not longer
+/// than `line_length`. The part after the break must contain code.
+fn find_blank_split(line: &str, line_length: usize, in_string: Option<char>) -> Option<usize> {
+    let scan = scan_line(line, in_string);
+    let code = line[..scan.code_end].trim_end();
+    // Don't separate a trailing '&' from the code in front of it
+    let code = match scan.open_string {
+        Some(_) => return None,
+        None => code.strip_suffix('&').unwrap_or(code).trim_end(),
+    };
+    let states = string_contents(line, in_string);
+    let bytes = code.as_bytes();
+    let min_pos = indent_of(line) + 1;
+    let max_pos = line_length
+        .saturating_sub(2)
+        .min(code.len().saturating_sub(1));
+    (min_pos..=max_pos).rev().find(|&pos| {
+        bytes[pos] == b' '
+            && states[pos].is_none()
+            && !code[..pos].trim_end().ends_with('&')
+            && !code[pos..].trim().is_empty()
+    })
+}
+
+/// Break lines exceeding `line_length` at blanks outside of string literals
+/// and comments, as a last resort if the syntax gives no better place.
+pub(crate) fn split_at_blanks(lines: &mut Vec<String>, line_length: usize, indent: usize) {
+    let mut in_string = None;
+    let mut continued = false;
+    let mut i = 0;
+    while i < lines.len() {
+        let line = &lines[i];
+        let is_comment = in_string.is_none() && line.trim_start().starts_with('!');
+        if line.len() > line_length && !is_comment {
+            if let Some(pos) = find_blank_split(line, line_length, in_string) {
+                // The first line of a statement opens a new level of indentation
+                let next_indent = indent_of(line) + if continued { 0 } else { indent };
+                let rest = format!("{}{}", " ".repeat(next_indent), line[pos..].trim_start());
+                let first = format!("{} &", lines[i][..pos].trim_end());
+                lines[i] = first;
+                lines.insert(i + 1, rest);
+            }
+        }
+        continued = is_continued(&lines[i], in_string);
+        in_string = scan_line(&lines[i], in_string).open_string;
+        i += 1;
+    }
+}
+
 /// Comments that must not be wrapped: compiler and OpenMP/OpenACC directives
 /// (`!$omp`, `!$`, `!DIR$`, ...), '!&' and `! allow(...)` comments
 fn is_unsplittable_comment(comment: &str) -> bool {
@@ -229,6 +279,27 @@ mod test {
         let mut lines = vec!["  x = 1 ! \"a comment that is long enough to be split\"".to_string()];
         split_long_strings(&mut lines, 20, 2);
         assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn split_blanks() {
+        let mut lines = vec![
+            "  print *, 'a string with blanks', 'another one', x == y".to_string(),
+            "  call foo(first, second, & ! comment".to_string(),
+            "    third)".to_string(),
+        ];
+        split_at_blanks(&mut lines, 30, 2);
+        assert_eq!(
+            lines,
+            [
+                "  print *, &",
+                "    'a string with blanks', &",
+                "    'another one', x == y",
+                "  call foo(first, &",
+                "    second, & ! comment",
+                "    third)",
+            ]
+        );
     }
 
     #[test]

@@ -36,13 +36,15 @@ pub(crate) fn detach_trailing_comments(lines: Vec<String>) -> (Vec<String>, Vec<
 }
 
 /// Put the comments removed by [`detach_trailing_comments`] back at the end
-/// of their statement. If `line_length` is given, comments that would make
-/// the line too long are put on a line of their own after the statement,
-/// indented like it.
+/// of their statement. Comments that would make the line longer than
+/// `line_length` are put on a line of their own after the statement, indented
+/// like it, if they fit there or if they are going to be wrapped
+/// (`split_comments`).
 pub(crate) fn attach_trailing_comments(
     lines: Vec<String>,
     comments: &[String],
-    line_length: Option<usize>,
+    line_length: usize,
+    split_comments: bool,
 ) -> Vec<String> {
     let mut result: Vec<String> = Vec::with_capacity(lines.len());
     // Index of the first line of the last statement
@@ -63,6 +65,11 @@ pub(crate) fn attach_trailing_comments(
         };
         let comment = &comments[id];
 
+        let indent = if code.trim().is_empty() {
+            result.get(statement_start).map_or(0, |l| indent_of(l))
+        } else {
+            indent_of(code)
+        };
         let target = if code.trim().is_empty() {
             result.last_mut()
         } else {
@@ -75,8 +82,9 @@ pub(crate) fn attach_trailing_comments(
             result.push(comment.clone());
             continue;
         };
-        if line_length.is_some_and(|max| target.len() + 1 + comment.len() > max) {
-            let indent = indent_of(&result[statement_start]);
+        if target.len() + 1 + comment.len() > line_length
+            && (split_comments || indent + comment.len() <= line_length)
+        {
             result.push(format!("{}{comment}", " ".repeat(indent)));
         } else {
             target.push(' ');
@@ -131,7 +139,7 @@ mod test {
             &format!("    {MARKER}2"),
         ]);
         assert_eq!(
-            attach_trailing_comments(lines.clone(), &comments, None),
+            attach_trailing_comments(lines.clone(), &comments, 100, false),
             [
                 "  a = 1 ! one",
                 "  do i = 1, n ! two",
@@ -140,13 +148,33 @@ mod test {
             ]
         );
         assert_eq!(
-            attach_trailing_comments(lines, &comments, Some(20)),
+            attach_trailing_comments(lines.clone(), &comments, 20, true),
             [
                 "  a = 1 ! one",
                 "  do i = 1, n ! two",
                 "    call foo(a, &",
                 "      b)",
                 "    ! a rather long comment",
+            ]
+        );
+        // Without wrapping, a comment only gets a line of its own if it fits there
+        assert_eq!(
+            attach_trailing_comments(lines.clone(), &comments, 27, false),
+            [
+                "  a = 1 ! one",
+                "  do i = 1, n ! two",
+                "    call foo(a, &",
+                "      b)",
+                "    ! a rather long comment",
+            ]
+        );
+        assert_eq!(
+            attach_trailing_comments(lines, &comments, 20, false),
+            [
+                "  a = 1 ! one",
+                "  do i = 1, n ! two",
+                "    call foo(a, &",
+                "      b) ! a rather long comment",
             ]
         );
     }
