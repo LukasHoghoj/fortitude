@@ -1,13 +1,10 @@
-use std::{
-    cmp::Ordering,
-    collections::HashMap,
-    fs::File,
-    io::{BufRead, BufReader, Write},
-    path::PathBuf,
-};
+mod continuation;
+
+use std::{cmp::Ordering, collections::HashMap, io::Write, path::PathBuf};
 
 use anyhow::Result;
 
+use continuation::{indent_string_continuations, join_continuation_lines};
 use fortitude_linter::settings::FormatSettings;
 use topiary_core::{FormatterError, Language, Operation, TopiaryQuery, formatter};
 use tree_sitter::{Point, Query, QueryCursor, StreamingIterator, Tree, TreeCursor};
@@ -50,74 +47,41 @@ pub fn format_file(
 ) -> Result<(), FormatterError> {
     println!("formatting {file:?}");
 
-    let mut lines: Vec<String> = get_uncontinued_lines(&file)?;
-
-    let format_input = lines.join("\n");
-    let mut format_output = vec![];
-
-    for _ in 0..10 {
-        formatter(
-            &mut format_input.as_bytes(),
-            &mut format_output,
-            language,
-            // TODO: user args?
-            Operation::Format {
-                skip_idempotence: true,
-                tolerate_parsing_errors: true,
-            },
-        )?;
-
-        let format_result = String::from_utf8(format_output.clone()).unwrap();
-
-        lines = format_result.lines().map(|x| x.to_string()).collect();
-
-        if dbg!(&break_lines(&mut lines, settings.line_length, 2)) == &0_usize {
-            break;
-        };
-    }
+    let source = std::fs::read_to_string(&file)?;
+    let lines = format_source(&source, language, settings)?;
 
     writeln!(output, "{}", lines.join("\n"))?;
 
     Ok(())
 }
 
-fn get_uncontinued_lines(file: &PathBuf) -> Result<Vec<String>, FormatterError> {
-    let input = File::open(file)?;
-    let buf_input = BufReader::new(input);
+/// Format Fortran source code, returning the formatted lines
+pub fn format_source(
+    source: &str,
+    language: &Language,
+    settings: &FormatSettings,
+) -> Result<Vec<String>, FormatterError> {
+    let format_input = join_continuation_lines(source, false).join("\n");
+    let mut format_output = vec![];
 
-    let mut lines = buf_input.lines();
-    let mut strings: Vec<String> = vec![];
-    let mut result: Vec<String> = Vec::with_capacity(5);
+    formatter(
+        &mut format_input.as_bytes(),
+        &mut format_output,
+        language,
+        // TODO: user args?
+        Operation::Format {
+            skip_idempotence: true,
+            tolerate_parsing_errors: true,
+        },
+    )?;
 
-    while let Some(line) = lines.next() {
-        let line = line?;
+    let format_result = String::from_utf8(format_output).unwrap();
+    let mut lines: Vec<String> = format_result.lines().map(|x| x.to_string()).collect();
 
-        let stripped = line.trim_end().to_string();
+    indent_string_continuations(&mut lines);
+    break_lines(&mut lines, settings.line_length, 2);
 
-        if strings.len() == 0 {
-            strings.push(stripped);
-        } else {
-            strings.push(
-                stripped
-                    .trim_start_matches(|c: char| c.is_whitespace() || c == '&')
-                    .to_string(),
-            )
-        }
-
-        if strings.last().unwrap().ends_with('&') {
-            continue;
-        }
-
-        result.push(
-            strings
-                .iter()
-                .map(|x| x.trim_end_matches(|c: char| c.is_whitespace() || c == '&'))
-                .collect(),
-        );
-        strings.clear();
-    }
-
-    Ok(result)
+    Ok(lines)
 }
 
 // An actual computed line break
@@ -420,6 +384,9 @@ mod test {
     #[test_case(Path::new("submodule-definition-simple.f90"))]
     #[test_case(Path::new("subroutine.f90"))]
     #[test_case(Path::new("use-operator-and-assignment.f90"))]
+    #[test_case(Path::new("continued-strings.f90"))]
+    #[test_case(Path::new("continued-string-after-semicolon.f90"))]
+    #[test_case(Path::new("continuation-comments.f90"))]
     fn format(path: &Path) -> Result<(), FormatterError> {
         let snapshot = format!("{}", path.to_string_lossy());
 
