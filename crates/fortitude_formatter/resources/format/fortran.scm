@@ -194,9 +194,12 @@
   "/="
   "+"
   "-"
-  "*" ;TODO format if not format_identifier or assumed_size
   "/"
 ] @prepend_space @append_space
+
+; Only a multiplication has spaces around "*", not e.g. 'a(*)', 'len=*' or
+; 'print *'
+(math_expression "*" @prepend_space @append_space)
 
 [
  (format_identifier)

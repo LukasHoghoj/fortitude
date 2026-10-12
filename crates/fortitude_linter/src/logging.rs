@@ -145,7 +145,9 @@ pub fn set_up_logging(level: LogLevel) -> Result<()> {
         })
         .level(level.level_filter())
         .level_for("globset", log::LevelFilter::Warn)
-        .level_for("topiary_core", log::LevelFilter::Warn)
+        // Topiary warns about formatting rules it skips, e.g. within nodes it
+        // keeps as they are, which isn't of interest to users
+        .level_for("topiary_core", log::LevelFilter::Error)
         .chain(std::io::stderr())
         .apply()?;
     Ok(())
