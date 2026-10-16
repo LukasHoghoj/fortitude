@@ -38,7 +38,9 @@ pub(crate) fn scan_line(line: &str, in_string: Option<char>) -> LineScan {
     }
     LineScan {
         code_end: line.len(),
-        open_string: in_string,
+        // A string literal can only be continued with a trailing '&', otherwise
+        // it is unterminated (e.g. because of a fypp expression with quotes)
+        open_string: in_string.filter(|_| line.trim_end().ends_with('&')),
     }
 }
 
@@ -567,6 +569,15 @@ mod test {
         let scan = scan_line(r#"   &mark! and &"#, Some('"'));
         assert_eq!(scan.code_end, 15);
         assert_eq!(scan.open_string, Some('"'));
+    }
+
+    #[test]
+    fn scan_unterminated_string() {
+        let scan = scan_line(
+            r#"write(*,*) 'Condition: ${cond.replace("'", "''")}$'"#,
+            None,
+        );
+        assert_eq!(scan.open_string, None);
     }
 
     #[test]

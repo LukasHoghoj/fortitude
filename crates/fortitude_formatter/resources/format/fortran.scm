@@ -153,7 +153,6 @@
  (derived_type_statement)
  (block_data_statement)
  (enumeration_type_statement)
- "contains"
 ] @append_indent_start
 
 ; A main program doesn't need a 'program' statement, only then is there an
@@ -172,7 +171,6 @@
  (end_enumeration_type_statement)
  (else_clause)
  (elseif_clause)
- "contains"
 ] @prepend_indent_end
 
 [
@@ -611,7 +609,7 @@ _ @append_antispace
 (rank_statement [")" (default)] @append_space . [(block_label) (parenthesized_expression)])
 (rank_statement (block_label) @append_hardline @append_indent_start)
 (elsewhere_clause
-  ["elsewhere" (parenthesized_expression)] @append_hardline @append_indent_start
+  ["elsewhere" "where" (parenthesized_expression)] @append_hardline @append_indent_start
   .
   [(comment) (statement_label) (ERROR)
    (assignment_statement) (pointer_association_statement) (subroutine_call)
@@ -628,8 +626,8 @@ _ @append_antispace
    (elseif_clause) (else_clause) (elsewhere_clause) (end_if_statement)
    (end_where_statement) (end_coarray_team_statement)]
 )
-(elsewhere_clause ["elsewhere" (parenthesized_expression)] @append_hardline @append_indent_start .)
-(elsewhere_clause ["elsewhere" (parenthesized_expression)] @append_space . [(block_label) (parenthesized_expression)])
+(elsewhere_clause ["elsewhere" "where" (parenthesized_expression)] @append_hardline @append_indent_start .)
+(elsewhere_clause ["elsewhere" "where" (parenthesized_expression)] @append_space . [(block_label) (parenthesized_expression)])
 (elsewhere_clause (block_label) @append_hardline @append_indent_start)
 (coarray_team_statement
   (argument_list) @append_hardline @append_indent_start
@@ -667,3 +665,32 @@ _ @append_antispace
 
 ; 'procedure(iface) f' (declaration without '::')
 (variable_declaration (procedure) @append_space)
+
+; Keywords that may be written as two words
+(elsewhere_clause "else" @append_space . "where")
+(intrinsic_type "double" @append_space)
+(keyword_statement "go" @append_space . "to")
+
+; 'character c*4': the length has no node of its own
+(character_length) @leaf
+
+; A parse error ending a line (e.g. invalid code) is not merged with the next
+; line (lines consisting only of errors are kept as they are, see errors.rs)
+(ERROR) @append_input_softline
+; computed 'go to (10, 20) i'
+(keyword_statement "to" @append_space . "(")
+(keyword_statement "(" @append_antispace)
+; 'intent(in out)'
+(type_qualifier "in" @append_space . "out")
+
+; 'contains' closes the block of the program unit and opens a new one, if the
+; program unit has an opening statement (a main program may not have one)
+[
+ (module (internal_procedures (contains_statement "contains" @prepend_indent_end @append_indent_start)))
+ (submodule (internal_procedures (contains_statement "contains" @prepend_indent_end @append_indent_start)))
+ (subroutine (internal_procedures (contains_statement "contains" @prepend_indent_end @append_indent_start)))
+ (function (internal_procedures (contains_statement "contains" @prepend_indent_end @append_indent_start)))
+ (module_procedure (internal_procedures (contains_statement "contains" @prepend_indent_end @append_indent_start)))
+ (program (program_statement) (internal_procedures (contains_statement "contains" @prepend_indent_end @append_indent_start)))
+ (derived_type_definition (derived_type_procedures (contains_statement "contains" @prepend_indent_end @append_indent_start)))
+]

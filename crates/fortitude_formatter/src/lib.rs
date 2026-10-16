@@ -1,5 +1,6 @@
 mod comments;
 mod continuation;
+mod errors;
 mod preprocessor;
 mod split;
 
@@ -19,6 +20,7 @@ use comments::{
 use continuation::{
     indent_string_continuations, join_continuation_lines, rejoin_statements, restore_line_breaks,
 };
+use errors::{mark_error_lines, unmark_error_lines};
 use fortitude_linter::settings::FormatSettings;
 use preprocessor::format_with_directives;
 use split::{split_at_blanks, split_long_comments, split_long_strings};
@@ -134,6 +136,8 @@ fn format_code(
         mark_column0_comments(joined.lines)
     };
     let (lines, comments) = detach_trailing_comments(lines);
+    // Lines the parser can't make sense of are kept as they are
+    let (lines, error_lines) = mark_error_lines(lines);
     let format_input = lines.join("\n");
     let mut format_output = vec![];
 
@@ -151,6 +155,7 @@ fn format_code(
     let format_result = String::from_utf8(format_output).unwrap();
     let lines: Vec<String> = format_result.lines().map(|x| x.to_string()).collect();
 
+    let lines = unmark_error_lines(lines, &error_lines);
     let lines = unmark_column0_comments(lines);
     // Statements separated by ';' stay on one line
     let mut lines = rejoin_statements(lines);
@@ -566,6 +571,8 @@ mod test {
     #[test_case(Path::new("labelled-constructs.f90"), 100, false, false)]
     #[test_case(Path::new("procedure-arguments.f90"), 100, false, false)]
     #[test_case(Path::new("procedure-arguments.f90"), 60, false, false)]
+    #[test_case(Path::new("keyword-spellings.f90"), 100, false, false)]
+    #[test_case(Path::new("obsolete-forms.f90"), 100, false, false)]
     #[test_case(Path::new("continuation-comments.f90"), 100, false, false)]
     #[test_case(Path::new("continuation-comments.f90"), 40, false, false)]
     #[test_case(Path::new("line-length.f90"), 40, false, false)]
@@ -696,10 +703,16 @@ mod test {
             {
                 continue;
             }
-            let text = if continued {
-                trimmed.strip_prefix('&').unwrap_or(trimmed)
-            } else {
-                line
+            // Text continues directly after a leading '&', else after a blank
+            let text = match (continued, trimmed.strip_prefix('&')) {
+                (true, Some(rest)) => rest,
+                (true, None) => {
+                    if in_string.is_none() {
+                        code.push(' ');
+                    }
+                    trimmed
+                }
+                (false, _) => line,
             };
             let scan = crate::continuation::scan_line(text, in_string);
             in_string = scan.open_string;
@@ -707,9 +720,6 @@ mod test {
             match line_code.strip_suffix('&') {
                 Some(line_code) => {
                     code.push_str(line_code);
-                    if in_string.is_none() {
-                        code.push(' ');
-                    }
                     continued = true;
                 }
                 None => {
