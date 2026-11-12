@@ -1829,3 +1829,221 @@ suppression comments](linter.md#error-suppression) such as `! allow(use-all)` in
 
 ---
 
+### `format`
+
+Configures how Fortitude formats your code.
+
+The formatter is experimental and only runs in preview mode.
+
+#### [`indent-col0-comments`](#format_indent-col0-comments) {: #format_indent-col0-comments }
+<span id="indent-col0-comments"></span>
+
+Whether to indent comment lines starting in the first column like the code
+around them. By default, they stay in the first column.
+
+**Default value**: `false`
+
+**Type**: `bool`
+
+**Example usage**:
+
+=== "`fpm.toml`"
+
+    ```toml
+    [extra.fortitude.format]
+    indent-col0-comments = true
+    ```
+=== "`fortitude.toml` or `.fortitude.toml`"
+
+    ```toml
+    [format]
+    indent-col0-comments = true
+    ```
+=== "`pyproject.toml`"
+
+    ```toml
+    [tool.fortitude.format]
+    indent-col0-comments = true
+    ```
+
+---
+
+#### [`indent-width`](#format_indent-width) {: #format_indent-width }
+<span id="indent-width"></span>
+
+The number of spaces per level of indentation, also used for continuation lines.
+
+Defaults to the value of [`check.indent-width`](#check_indent-width) if that is
+set, and to 2 otherwise.
+
+**Default value**: `2`
+
+**Type**: `int`
+
+**Example usage**:
+
+=== "`fpm.toml`"
+
+    ```toml
+    [extra.fortitude.format]
+    indent-width = 4
+    ```
+=== "`fortitude.toml` or `.fortitude.toml`"
+
+    ```toml
+    [format]
+    indent-width = 4
+    ```
+=== "`pyproject.toml`"
+
+    ```toml
+    [tool.fortitude.format]
+    indent-width = 4
+    ```
+
+---
+
+#### [`line-length`](#format_line-length) {: #format_line-length }
+<span id="line-length"></span>
+
+The line length the formatter tries to keep lines within.
+
+Defaults to the value of [`check.line-length`](#check_line-length).
+
+**Default value**: `100`
+
+**Type**: `int`
+
+**Example usage**:
+
+=== "`fpm.toml`"
+
+    ```toml
+    [extra.fortitude.format]
+    # Format lines to be at most 132 characters long.
+    line-length = 132
+    ```
+=== "`fortitude.toml` or `.fortitude.toml`"
+
+    ```toml
+    [format]
+    # Format lines to be at most 132 characters long.
+    line-length = 132
+    ```
+=== "`pyproject.toml`"
+
+    ```toml
+    [tool.fortitude.format]
+    # Format lines to be at most 132 characters long.
+    line-length = 132
+    ```
+
+---
+
+#### [`preview`](#format_preview) {: #format_preview }
+<span id="preview"></span>
+
+Whether to enable preview mode for the formatter. The formatter currently does
+nothing unless preview mode is enabled.
+
+Defaults to the value of [`check.preview`](#check_preview).
+
+**Default value**: `false`
+
+**Type**: `bool`
+
+**Example usage**:
+
+=== "`fpm.toml`"
+
+    ```toml
+    [extra.fortitude.format]
+    # Enable the (experimental) formatter.
+    preview = true
+    ```
+=== "`fortitude.toml` or `.fortitude.toml`"
+
+    ```toml
+    [format]
+    # Enable the (experimental) formatter.
+    preview = true
+    ```
+=== "`pyproject.toml`"
+
+    ```toml
+    [tool.fortitude.format]
+    # Enable the (experimental) formatter.
+    preview = true
+    ```
+
+---
+
+#### [`split-comments`](#format_split-comments) {: #format_split-comments }
+<span id="split-comments"></span>
+
+Whether to wrap comment lines exceeding the line length at whitespace,
+repeating the comment marker. Compiler and OpenMP/OpenACC directives (`!$omp`,
+`!$`, `!DIR$`, ...) and `allow` comments are never wrapped.
+
+**Default value**: `false`
+
+**Type**: `bool`
+
+**Example usage**:
+
+=== "`fpm.toml`"
+
+    ```toml
+    [extra.fortitude.format]
+    split-comments = true
+    ```
+=== "`fortitude.toml` or `.fortitude.toml`"
+
+    ```toml
+    [format]
+    split-comments = true
+    ```
+=== "`pyproject.toml`"
+
+    ```toml
+    [tool.fortitude.format]
+    split-comments = true
+    ```
+
+---
+
+#### [`split-strings`](#format_split-strings) {: #format_split-strings }
+<span id="split-strings"></span>
+
+Whether to split string literals exceeding the line length using character
+context continuation (`"abc &` followed by `&def"`), which leaves the value of
+the string unchanged. Continued strings are joined and split again where
+necessary.
+
+**Default value**: `false`
+
+**Type**: `bool`
+
+**Example usage**:
+
+=== "`fpm.toml`"
+
+    ```toml
+    [extra.fortitude.format]
+    split-strings = true
+    ```
+=== "`fortitude.toml` or `.fortitude.toml`"
+
+    ```toml
+    [format]
+    split-strings = true
+    ```
+=== "`pyproject.toml`"
+
+    ```toml
+    [tool.fortitude.format]
+    split-strings = true
+    ```
+
+---
+

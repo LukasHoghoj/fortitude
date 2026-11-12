@@ -172,3 +172,127 @@ fn format_column0_comments() -> anyhow::Result<()> {
     ");
     Ok(())
 }
+
+/// Format `UNFORMATTED` in a directory with the given `fortitude.toml`, without
+/// passing `--preview` on the command line
+fn format_with_config(config: &str, args: &[&str]) -> anyhow::Result<String> {
+    let tempdir = TempDir::new()?;
+    fs::write(tempdir.path().join("fortitude.toml"), config)?;
+    fs::write(tempdir.path().join("test.f90"), UNFORMATTED)?;
+    let output = Command::cargo_bin(BIN_NAME)?
+        .current_dir(tempdir.path())
+        .arg("format")
+        .arg("--i-understand-the-risks")
+        .args(args)
+        .arg("test.f90")
+        .output()?;
+    assert!(output.status.success(), "{output:?}");
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+#[test]
+fn format_settings_from_config_file() -> anyhow::Result<()> {
+    let config = "
+[format]
+preview = true
+indent-width = 4
+";
+    let stdout = format_with_config(config, &[])?;
+    assert_eq!(
+        stdout,
+        "program p
+    integer :: i ! counter
+    do i = 1, 3
+        print *, i
+    end do
+end program p
+"
+    );
+    Ok(())
+}
+
+#[test]
+fn format_preview_disabled_in_config_file() -> anyhow::Result<()> {
+    // `format.preview` takes precedence over `check.preview`
+    let config = "
+[check]
+preview = true
+[format]
+preview = false
+";
+    let stdout = format_with_config(config, &[])?;
+    assert_eq!(
+        stdout,
+        "Format mode is currently in preview; nothing to do\n"
+    );
+
+    // But the command line takes precedence over the config file
+    let stdout = format_with_config(config, &["--preview"])?;
+    assert_eq!(stdout, FORMATTED);
+    Ok(())
+}
+
+#[test]
+fn format_falls_back_to_check_settings() -> anyhow::Result<()> {
+    let config = "
+[check]
+preview = true
+indent-width = 3
+";
+    let stdout = format_with_config(config, &[])?;
+    assert_eq!(
+        stdout,
+        "program p
+   integer :: i ! counter
+   do i = 1, 3
+      print *, i
+   end do
+end program p
+"
+    );
+    Ok(())
+}
+
+#[test]
+fn format_command_line_overrides_config_file() -> anyhow::Result<()> {
+    let config = "
+[format]
+preview = true
+indent-width = 4
+";
+    let stdout = format_with_config(config, &["--indent", "2"])?;
+    assert_eq!(stdout, FORMATTED);
+    Ok(())
+}
+
+#[test]
+fn format_line_length_from_config_file() -> anyhow::Result<()> {
+    let config = "
+[check]
+line-length = 132
+[format]
+preview = true
+line-length = 30
+";
+    let tempdir = TempDir::new()?;
+    fs::write(tempdir.path().join("fortitude.toml"), config)?;
+    fs::write(
+        tempdir.path().join("test.f90"),
+        "program p
+print *, 'first', 'second', 'third', 'fourth'
+end program p
+",
+    )?;
+    let output = Command::cargo_bin(BIN_NAME)?
+        .current_dir(tempdir.path())
+        .args(["format", "--i-understand-the-risks", "test.f90"])
+        .output()?;
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout)?;
+    assert!(stdout.contains("'fourth'"), "{stdout}");
+    assert!(
+        stdout.lines().all(|line| line.len() <= 30),
+        "lines longer than 30 characters:\n{stdout}"
+    );
+    Ok(())
+}

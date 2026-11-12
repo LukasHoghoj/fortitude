@@ -626,10 +626,7 @@ impl CheckCommand {
             extend_fixable: self.extend_fixable,
             target_std: self.target_std,
             progress_bar: self.progress_bar,
-            format_indent_width: None,
-            indent_col0_comments: None,
-            split_comments: None,
-            split_strings: None,
+            ..ExplicitConfigOverrides::default()
         };
 
         let config_args = ConfigArguments::from_cli_arguments(global_options, per_flag_overrides)?;
@@ -663,6 +660,8 @@ struct ExplicitConfigOverrides {
     extend_fixable: Option<Vec<RuleSelector>>,
     target_std: Option<FortranStandard>,
     progress_bar: Option<ProgressBar>,
+    format_preview: Option<PreviewMode>,
+    format_line_length: Option<usize>,
     format_indent_width: Option<usize>,
     indent_col0_comments: Option<bool>,
     split_comments: Option<bool>,
@@ -723,6 +722,12 @@ impl ConfigurationTransformer for ExplicitConfigOverrides {
         }
         if self.output_format.is_some() {
             config.output_format = self.output_format;
+        }
+        if self.format_preview.is_some() {
+            config.format_preview = self.format_preview;
+        }
+        if self.format_line_length.is_some() {
+            config.format_line_length = self.format_line_length;
         }
         if self.format_indent_width.is_some() {
             config.format_indent_width = self.format_indent_width;
@@ -868,8 +873,8 @@ impl FormatCommand {
 
         let per_flag_overrides = ExplicitConfigOverrides {
             file_extensions: self.file_extensions,
-            line_length: self.line_length,
-            preview: resolve_bool_arg(self.preview, self.no_preview).map(PreviewMode::from),
+            format_line_length: self.line_length,
+            format_preview: resolve_bool_arg(self.preview, self.no_preview).map(PreviewMode::from),
             format_indent_width: self.indent,
             indent_col0_comments: self.indent_col0_comments,
             split_comments: self.split_comments,

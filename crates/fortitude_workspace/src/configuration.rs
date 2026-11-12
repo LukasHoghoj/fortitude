@@ -267,6 +267,8 @@ pub struct Configuration {
     pub use_statements: Option<UseStatementsOptions>,
     pub complexity: Option<ComplexityOptions>,
     // Formatter
+    pub format_preview: Option<PreviewMode>,
+    pub format_line_length: Option<usize>,
     pub format_indent_width: Option<usize>,
     pub indent_col0_comments: Option<bool>,
     pub split_comments: Option<bool>,
@@ -277,6 +279,7 @@ impl Configuration {
     /// Convert from config file options struct into our "known good" struct
     pub fn from_options(options: Options, project_root: &Path) -> Self {
         let check = options.check.unwrap_or_default();
+        let format = options.format.unwrap_or_default();
 
         #[expect(deprecated)]
         let include = convert_file_and_extensions_to_include(&check.files, &check.file_extensions);
@@ -375,11 +378,13 @@ impl Configuration {
             use_statements: check.use_statements,
             complexity: check.complexity,
 
-            // Formatter options can only be set on the command line so far
-            format_indent_width: None,
-            indent_col0_comments: None,
-            split_comments: None,
-            split_strings: None,
+            // Formatter
+            format_preview: format.preview.map(PreviewMode::from),
+            format_line_length: format.line_length,
+            format_indent_width: format.indent_width.map(IndentWidth::as_usize),
+            indent_col0_comments: format.indent_col0_comments,
+            split_comments: format.split_comments,
+            split_strings: format.split_strings,
         }
     }
 
@@ -480,11 +485,13 @@ impl Configuration {
             },
             format: FormatSettings {
                 line_length: self
-                    .line_length
+                    .format_line_length
+                    .or(self.line_length)
                     .unwrap_or(Settings::default().check.line_length),
-                preview,
+                preview: self.format_preview.unwrap_or(preview),
                 indent_width: self
                     .format_indent_width
+                    .or(self.indent_width.map(IndentWidth::as_usize))
                     .unwrap_or(FormatSettings::default().indent_width),
                 indent_col0_comments: self.indent_col0_comments.unwrap_or_default(),
                 split_comments: self.split_comments.unwrap_or_default(),
@@ -577,6 +584,8 @@ impl Configuration {
             line_too_long: self.line_too_long.or(config.line_too_long),
             use_statements: self.use_statements.or(config.use_statements),
             complexity: self.complexity.or(config.complexity),
+            format_preview: self.format_preview.or(config.format_preview),
+            format_line_length: self.format_line_length.or(config.format_line_length),
             format_indent_width: self.format_indent_width.or(config.format_indent_width),
             indent_col0_comments: self.indent_col0_comments.or(config.indent_col0_comments),
             split_comments: self.split_comments.or(config.split_comments),
@@ -1217,6 +1226,7 @@ mod tests {
                 file_extensions: Some(vec!["f90".to_string(), "F90".to_string()]),
                 ..CheckOptions::default()
             }),
+            format: None,
         };
 
         let root = Path::new("/some/abs/path/");
