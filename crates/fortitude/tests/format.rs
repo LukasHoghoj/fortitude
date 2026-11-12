@@ -296,3 +296,115 @@ end program p
     );
     Ok(())
 }
+
+const RANGE_SOURCE: &str = "program p
+integer :: i
+do i = 1, 3
+print *, i
+end do
+x=1
+end program p
+";
+
+#[test]
+fn format_range_to_stdout() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    let test_file = tempdir.path().join("test.f90");
+    fs::write(&test_file, RANGE_SOURCE)?;
+
+    // Only line 4 is formatted, but indented according to the code around it
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--range", "4", "test.f90"]), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    program p
+    integer :: i
+    do i = 1, 3
+        print *, i
+    end do
+    x=1
+    end program p
+
+    ----- stderr -----
+    ");
+    Ok(())
+}
+
+#[test]
+fn format_range_in_place() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    let test_file = tempdir.path().join("test.f90");
+    fs::write(&test_file, RANGE_SOURCE)?;
+
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--in-place", "--range", "5-6", "test.f90"]), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    1 file reformatted, 0 files left unchanged
+
+    ----- stderr -----
+    ");
+    assert_eq!(
+        fs::read_to_string(&test_file)?,
+        "program p
+integer :: i
+do i = 1, 3
+print *, i
+  end do
+  x = 1
+end program p
+"
+    );
+    Ok(())
+}
+
+#[test]
+fn format_range_needs_single_file() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    fs::write(tempdir.path().join("a.f90"), RANGE_SOURCE)?;
+    fs::write(tempdir.path().join("b.f90"), RANGE_SOURCE)?;
+
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--range", "1-2", "a.f90", "b.f90"]), @r"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+
+    ----- stderr -----
+    fortitude failed
+    Error: --range can only be used when formatting a single file
+    ");
+    Ok(())
+}
+
+#[test]
+fn format_range_invalid() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--range", "3-2", "a.f90"]), @r"
+    success: false
+    exit_code: 2
+    ----- stdout -----
+
+    ----- stderr -----
+    error: invalid value '3-2' for '--range <START-END>': the range ends (line 2) before it starts (line 3)
+
+    For more information, try '--help'.
+    ");
+    Ok(())
+}
+
+#[test]
+fn format_in_place_keeps_crlf() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    let test_file = tempdir.path().join("test.f90");
+    fs::write(&test_file, UNFORMATTED.replace('\n', "\r\n"))?;
+
+    format_command(&tempdir)?
+        .args(["--in-place", "test.f90"])
+        .assert()
+        .success();
+    assert_eq!(
+        fs::read_to_string(&test_file)?,
+        FORMATTED.replace('\n', "\r\n")
+    );
+    Ok(())
+}

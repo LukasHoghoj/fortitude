@@ -1,8 +1,8 @@
 //! Access to the Fortitude formatter for the LSP
 
-use fortitude_formatter::{cached_formatter, format_source};
-use fortitude_linter::settings::FormatSettings;
+use fortitude_formatter::{cached_formatter, format_lines, format_text};
 use ruff_source_file::LineIndex;
+use ruff_text_size::{TextRange, TextSize};
 
 use crate::{
     PositionEncoding,
@@ -17,22 +17,18 @@ pub(crate) fn format(
     query: &DocumentQuery,
     encoding: PositionEncoding,
 ) -> crate::Result<Option<Vec<lsp_types::TextEdit>>> {
-    let settings = query.settings();
-    let document_path = query.virtual_file_path();
-
-    if is_document_excluded_for_formatting(
-        &document_path,
-        &settings.file_resolver,
-        query.text_document_language_id(),
-    ) {
+    if is_excluded(query) {
         return Ok(None);
     }
 
     let document = query.as_single_document();
     let source = document.contents();
-    let Some(formatted) = format_text(source, &settings.format)? else {
+    let settings = &query.settings().format;
+    let language = cached_formatter(settings.indent_width);
+    let formatted = format_text(source, &language, settings).map_err(formatter_error)?;
+    if formatted == source {
         return Ok(None);
-    };
+    }
 
     Ok(Some(vec![minimal_edit(
         source,
@@ -42,31 +38,68 @@ pub(crate) fn format(
     )]))
 }
 
-/// Format `source`, returning `None` if formatting doesn't change it. The
-/// formatted text keeps the line endings of `source`.
-pub(crate) fn format_text(
-    source: &str,
-    settings: &FormatSettings,
-) -> crate::Result<Option<String>> {
-    let language = cached_formatter(settings.indent_width);
-    // `FormatterError` can't be sent between threads, so only keep its message
-    let lines = format_source(source, &language, settings)
-        .map_err(|err| anyhow::anyhow!("Failed to format document: {err}"))?;
-
-    let newline = if uses_crlf(source) { "\r\n" } else { "\n" };
-    let mut formatted = lines.join(newline);
-    if !formatted.is_empty() {
-        formatted.push_str(newline);
+/// Format the statements on the lines of `range`, returning the edits to apply
+/// to the document, or `None` if formatting doesn't change them or the document
+/// is excluded from formatting
+pub(crate) fn format_range(
+    query: &DocumentQuery,
+    range: lsp_types::Range,
+    encoding: PositionEncoding,
+) -> crate::Result<Option<Vec<lsp_types::TextEdit>>> {
+    if is_excluded(query) {
+        return Ok(None);
     }
 
-    Ok((formatted != source).then_some(formatted))
+    let document = query.as_single_document();
+    let source = document.contents();
+    let settings = &query.settings().format;
+    let language = cached_formatter(settings.indent_width);
+    let edits =
+        format_lines(source, &language, settings, range_lines(range)).map_err(formatter_error)?;
+    if edits.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(
+        edits
+            .into_iter()
+            .map(|edit| {
+                let range = TextRange::new(
+                    TextSize::try_from(edit.source_range.start)?,
+                    TextSize::try_from(edit.source_range.end)?,
+                );
+                Ok(lsp_types::TextEdit {
+                    range: range.to_range(source, document.index(), encoding),
+                    new_text: edit.new_text,
+                })
+            })
+            .collect::<crate::Result<_>>()?,
+    ))
 }
 
-/// Whether the first line of `source` ends with `\r\n`
-fn uses_crlf(source: &str) -> bool {
-    source
-        .find('\n')
-        .is_some_and(|newline| source[..newline].ends_with('\r'))
+fn is_excluded(query: &DocumentQuery) -> bool {
+    is_document_excluded_for_formatting(
+        &query.virtual_file_path(),
+        &query.settings().file_resolver,
+        query.text_document_language_id(),
+    )
+}
+
+/// `FormatterError` can't be sent between threads, so only keep its message
+fn formatter_error(err: impl std::fmt::Display) -> anyhow::Error {
+    anyhow::anyhow!("Failed to format document: {err}")
+}
+
+/// The lines touched by `range`, numbered from 0. A range ending at the start
+/// of a line, such as a selection of whole lines, doesn't include that line.
+fn range_lines(range: lsp_types::Range) -> std::ops::Range<usize> {
+    let start = range.start.line as usize;
+    let end = if range.end.character == 0 && range.end.line > range.start.line {
+        range.end.line as usize
+    } else {
+        range.end.line as usize + 1
+    };
+    start..end
 }
 
 /// A single edit replacing the lines of `source` that differ from `formatted`
@@ -94,72 +127,11 @@ fn minimal_edit(
 
 #[cfg(test)]
 mod tests {
-    use fortitude_linter::settings::{FormatSettings, PreviewMode};
+    use lsp_types::{Position, Range};
     use ruff_source_file::LineIndex;
 
-    use super::{format_text, minimal_edit};
+    use super::{minimal_edit, range_lines};
     use crate::PositionEncoding;
-
-    fn settings() -> FormatSettings {
-        FormatSettings {
-            preview: PreviewMode::Enabled,
-            ..FormatSettings::default()
-        }
-    }
-
-    const UNFORMATTED: &str = "program p
-integer :: i
-do i = 1, 3
-print *, i
-end do
-end program p
-";
-
-    const FORMATTED: &str = "program p
-  integer :: i
-  do i = 1, 3
-    print *, i
-  end do
-end program p
-";
-
-    #[test]
-    fn formats_text() -> anyhow::Result<()> {
-        assert_eq!(
-            format_text(UNFORMATTED, &settings())?.as_deref(),
-            Some(FORMATTED)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn formatted_text_is_unchanged() -> anyhow::Result<()> {
-        assert_eq!(format_text(FORMATTED, &settings())?, None);
-        assert_eq!(format_text("", &settings())?, None);
-        Ok(())
-    }
-
-    #[test]
-    fn keeps_crlf_line_endings() -> anyhow::Result<()> {
-        let crlf = |text: &str| text.replace('\n', "\r\n");
-        assert_eq!(
-            format_text(&crlf(UNFORMATTED), &settings())?,
-            Some(crlf(FORMATTED))
-        );
-        assert_eq!(format_text(&crlf(FORMATTED), &settings())?, None);
-        Ok(())
-    }
-
-    #[test]
-    fn indent_width_from_settings() -> anyhow::Result<()> {
-        let settings = FormatSettings {
-            indent_width: 4,
-            ..settings()
-        };
-        let formatted = format_text(UNFORMATTED, &settings)?.unwrap();
-        assert!(formatted.contains("\n        print *, i\n"), "{formatted}");
-        Ok(())
-    }
 
     #[test]
     fn edit_only_covers_changed_lines() {
@@ -170,14 +142,39 @@ print *, i
   end do
 end program p
 ";
+        let formatted = "program p
+  integer :: i
+  do i = 1, 3
+    print *, i
+  end do
+end program p
+";
         let edit = minimal_edit(
             source,
             &LineIndex::from_source_text(source),
-            FORMATTED,
+            formatted,
             PositionEncoding::UTF16,
         );
-        assert_eq!(edit.range.start, lsp_types::Position::new(3, 0));
-        assert_eq!(edit.range.end, lsp_types::Position::new(4, 0));
+        assert_eq!(edit.range.start, Position::new(3, 0));
+        assert_eq!(edit.range.end, Position::new(4, 0));
         assert_eq!(edit.new_text, "    print *, i\n");
+    }
+
+    #[test]
+    fn lines_of_range() {
+        let range = |start: (u32, u32), end: (u32, u32)| {
+            range_lines(Range::new(
+                Position::new(start.0, start.1),
+                Position::new(end.0, end.1),
+            ))
+        };
+        // A cursor position
+        assert_eq!(range((3, 4), (3, 4)), 3..4);
+        // Part of a line
+        assert_eq!(range((3, 0), (3, 4)), 3..4);
+        // Whole lines, ending at the start of the next line
+        assert_eq!(range((3, 0), (5, 0)), 3..5);
+        // Ending within a line
+        assert_eq!(range((3, 2), (5, 1)), 3..6);
     }
 }

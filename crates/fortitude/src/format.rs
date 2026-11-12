@@ -3,11 +3,11 @@ use std::{
     process::ExitCode,
 };
 
-use fortitude_formatter::{create_formatter, format_file, format_file_in_place};
+use fortitude_formatter::{cached_formatter, format_file, format_file_in_place};
 use fortitude_linter::settings::PreviewMode;
 use fortitude_workspace::resolver::fortran_files_in_path;
 
-use crate::cli::{FormatCommand, GlobalConfigArgs};
+use crate::cli::{FormatCommand, GlobalConfigArgs, LineRange};
 use crate::resolve;
 
 use anyhow::Result;
@@ -37,7 +37,7 @@ risks."
         return Ok(ExitCode::SUCCESS);
     }
 
-    let language = create_formatter(settings.format.indent_width);
+    let language = cached_formatter(settings.format.indent_width);
 
     let (paths, _resolver) =
         fortran_files_in_path(&cli.files, &None, &fortitude_config, &config_arguments)?;
@@ -57,23 +57,36 @@ risks."
         }
     }
 
+    let lines = cli.range.map(LineRange::to_indices);
+    if lines.is_some() && (files.len() != 1 || cli.files.iter().any(|path| path.is_dir())) {
+        anyhow::bail!("--range can only be used when formatting a single file");
+    }
+
     let mut stdout = BufWriter::new(std::io::stdout());
 
     for file in &files {
         let result = if cli.in_place {
-            format_file_in_place(file, &language, &settings.format).map(|was_changed| {
-                if was_changed {
-                    changed += 1;
-                } else {
-                    unchanged += 1;
-                }
-            })
+            format_file_in_place(file, &language, &settings.format, lines.clone()).map(
+                |was_changed| {
+                    if was_changed {
+                        changed += 1;
+                    } else {
+                        unchanged += 1;
+                    }
+                },
+            )
         } else {
             // Tell the files apart if there are several of them
             if files.len() > 1 {
                 writeln!(stdout, "formatting {file:?}")?;
             }
-            format_file(file.clone(), &language, &settings.format, &mut stdout)
+            format_file(
+                file,
+                &language,
+                &settings.format,
+                lines.clone(),
+                &mut stdout,
+            )
         };
 
         if let Err(err) = result {

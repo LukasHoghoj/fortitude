@@ -823,6 +823,12 @@ pub struct FormatCommand {
     /// written if formatting changes them.
     #[arg(long, action = SetTrue)]
     pub in_place: Option<bool>,
+    /// Only format the given lines of a single file, e.g. `--range 5-12`, or
+    /// `--range 7` for one line. Lines are numbered from 1 and the range includes
+    /// both ends. It is widened to the whole statements on these lines, which are
+    /// indented according to the code around them.
+    #[arg(long, value_name = "START-END")]
+    pub range: Option<LineRange>,
     /// Enable preview mode; enables unstable formatting.
     /// Use `--no-preview` to disable.
     #[arg(long, overrides_with("no_preview"), action = SetTrue)]
@@ -856,6 +862,47 @@ pub struct FormatArgs {
     pub files: Vec<PathBuf>,
     pub i_understand_the_risks: bool,
     pub in_place: bool,
+    pub range: Option<LineRange>,
+}
+
+/// A range of lines, numbered from 1 and including both ends
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+pub struct LineRange {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl LineRange {
+    /// The lines as a range of indices from 0
+    pub fn to_indices(self) -> std::ops::Range<usize> {
+        self.start - 1..self.end
+    }
+}
+
+impl FromStr for LineRange {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let parse = |line: &str| match line.trim().parse::<usize>() {
+            Ok(0) | Err(_) => Err(format!(
+                "invalid line number `{line}`: lines are numbered from 1"
+            )),
+            Ok(line) => Ok(line),
+        };
+        let (start, end) = match value.split_once('-') {
+            Some((start, end)) => (parse(start)?, parse(end)?),
+            None => {
+                let line = parse(value)?;
+                (line, line)
+            }
+        };
+        if end < start {
+            return Err(format!(
+                "the range ends (line {end}) before it starts (line {start})"
+            ));
+        }
+        Ok(Self { start, end })
+    }
 }
 
 impl FormatCommand {
@@ -869,6 +916,7 @@ impl FormatCommand {
             files: self.files.unwrap_or_default(),
             i_understand_the_risks: self.i_understand_the_risks.unwrap_or_default(),
             in_place: self.in_place.unwrap_or_default(),
+            range: self.range,
         };
 
         let per_flag_overrides = ExplicitConfigOverrides {

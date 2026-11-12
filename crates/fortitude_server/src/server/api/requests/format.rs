@@ -33,7 +33,7 @@ impl super::BackgroundDocumentRequestHandler for Format {
 }
 
 /// Tell the user once per session why formatting does nothing
-fn warn_preview_disabled(client: &Client) {
+pub(super) fn warn_preview_disabled(client: &Client) {
     static WARNED: AtomicBool = AtomicBool::new(false);
     if !WARNED.swap(true, Ordering::Relaxed) {
         client.show_warning_message(

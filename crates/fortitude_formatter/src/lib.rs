@@ -2,13 +2,15 @@ mod comments;
 mod continuation;
 mod errors;
 mod preprocessor;
+mod range;
 mod split;
 
 use std::{
     cmp::Ordering,
     collections::HashMap,
     io::Write,
-    path::{Path, PathBuf},
+    ops::Range,
+    path::Path,
     sync::{Arc, LazyLock, Mutex, PoisonError},
 };
 
@@ -24,6 +26,7 @@ use continuation::{
 use errors::{mark_error_lines, unmark_error_lines};
 use fortitude_linter::settings::FormatSettings;
 use preprocessor::format_with_directives;
+pub use range::{LineEdit, apply_line_edits, format_lines, format_text};
 use split::{split_at_blanks, split_long_comments, split_long_strings};
 use topiary_core::{FormatterError, Language, Operation, TopiaryQuery, formatter};
 use tree_sitter::{Point, Query, QueryCursor, StreamingIterator, Tree, TreeCursor};
@@ -75,32 +78,49 @@ fn indent_width(language: &Language) -> usize {
 //      - Implement TextProvider for Vec<String>?
 //      - Reuse parse / parse tree
 
-/// Format an individual file, writing the result to `output`
-pub fn format_file(
-    file: PathBuf,
+/// Format `source`, or only the given `lines` of it (numbered from 0), keeping
+/// its line endings
+fn format_text_or_lines(
+    source: &str,
     language: &Language,
     settings: &FormatSettings,
+    lines: Option<Range<usize>>,
+) -> Result<String, FormatterError> {
+    match lines {
+        Some(lines) => {
+            let edits = format_lines(source, language, settings, lines)?;
+            Ok(apply_line_edits(source, &edits))
+        }
+        None => format_text(source, language, settings),
+    }
+}
+
+/// Format an individual file, or only the given `lines` of it (numbered from
+/// 0), writing the result to `output`
+pub fn format_file(
+    file: &Path,
+    language: &Language,
+    settings: &FormatSettings,
+    lines: Option<Range<usize>>,
     output: &mut impl Write,
 ) -> Result<(), FormatterError> {
-    let source = std::fs::read_to_string(&file)?;
-    let lines = format_source(&source, language, settings)?;
-
-    writeln!(output, "{}", lines.join("\n"))?;
-
+    let source = std::fs::read_to_string(file)?;
+    let formatted = format_text_or_lines(&source, language, settings, lines)?;
+    output.write_all(formatted.as_bytes())?;
     Ok(())
 }
 
-/// Format an individual file in place. The file is only written if
-/// formatting changes it. Returns whether the file was changed.
+/// Format an individual file in place, or only the given `lines` of it
+/// (numbered from 0). The file is only written if formatting changes it.
+/// Returns whether the file was changed.
 pub fn format_file_in_place(
     file: &Path,
     language: &Language,
     settings: &FormatSettings,
+    lines: Option<Range<usize>>,
 ) -> Result<bool, FormatterError> {
     let source = std::fs::read_to_string(file)?;
-    let mut formatted = format_source(&source, language, settings)?.join("\n");
-    formatted.push('\n');
-
+    let formatted = format_text_or_lines(&source, language, settings, lines)?;
     if formatted == source {
         return Ok(false);
     }
@@ -540,7 +560,7 @@ mod test {
 
         let mut buf = Vec::new();
         let settings = FormatSettings::default();
-        format_file(path, &TEST_FORMATTER, &settings, &mut buf)?;
+        format_file(&path, &TEST_FORMATTER, &settings, None, &mut buf)?;
         apply_common_filters!();
 
         let string = String::from_utf8(buf)?;
@@ -560,7 +580,7 @@ mod test {
             line_length: 20,
             ..FormatSettings::default()
         };
-        format_file(path, &TEST_FORMATTER, &settings, &mut buf)?;
+        format_file(&path, &TEST_FORMATTER, &settings, None, &mut buf)?;
         apply_common_filters!();
 
         let string = String::from_utf8(buf)?;

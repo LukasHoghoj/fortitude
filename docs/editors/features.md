@@ -69,7 +69,9 @@ how fix safety works.
     [`format.preview`](../settings.md#format_preview) in your configuration file, or with the
     [`format.preview`](settings.md#format_preview) editor setting.
 
-The server can format whole documents. The formatter settings, such as the
+The server can format whole documents, or only the selected lines. When formatting a
+selection, it is widened to the whole statements on the selected lines, which are indented
+according to the code around them. The formatter settings, such as the
 [`indent-width`](../settings.md#format_indent-width), are taken from the `[format]` section of
 your configuration file, so the indentation options of your editor are ignored.
 
