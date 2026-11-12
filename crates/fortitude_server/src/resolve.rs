@@ -19,6 +19,15 @@ pub(crate) fn is_document_excluded_for_linting(
     is_document_excluded(path, resolver_settings, Some(linter_settings), language_id)
 }
 
+/// Return `true` if the document at the given [`Path`] should be excluded from formatting.
+pub(crate) fn is_document_excluded_for_formatting(
+    path: &Path,
+    resolver_settings: &FileResolverSettings,
+    language_id: Option<LanguageId>,
+) -> bool {
+    is_document_excluded(path, resolver_settings, None, language_id)
+}
+
 /// Return `true` if the document at the given [`Path`] should be excluded.
 ///
 /// The tool-specific settings should be provided if the request for the document is specific to

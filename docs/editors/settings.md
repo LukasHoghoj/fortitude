@@ -461,6 +461,44 @@ Rules to disable by default. See [the documentation](../settings.md#check_ignore
     }
     ```
 
+## `format`
+
+Settings specific to the Fortitude formatter.
+
+### `preview` {: #format_preview }
+
+Whether to enable Fortitude's preview mode when formatting. The formatter is experimental
+and does nothing unless preview mode is enabled, either with this setting, with
+[`format.preview`](../settings.md#format_preview) in your configuration file, or with
+[`check.preview`](#check_preview).
+
+**Default value**: `null`
+
+**Type**: `bool`
+
+**Example usage**:
+
+=== "Neovim"
+
+    ```lua
+    require('lspconfig').fortitude.setup {
+      init_options = {
+        settings = {
+          format = {
+            preview = true
+          }
+        }
+      }
+    }
+    ```
+
+=== "Configuration file"
+
+    ```toml
+    [format]
+    preview = true
+    ```
+
 ## VS Code specific
 
 Additionally, the Fortitude extension provides the following settings specific to VS Code. These settings

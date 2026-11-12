@@ -460,6 +460,7 @@ impl ConfigurationTransformer for EditorConfigurationTransformer<'_> {
         let EditorSettings {
             configuration,
             check_preview,
+            format_preview,
             select,
             extend_select,
             ignore,
@@ -473,6 +474,7 @@ impl ConfigurationTransformer for EditorConfigurationTransformer<'_> {
 
         let editor_configuration = Configuration {
             preview: check_preview.map(PreviewMode::from),
+            format_preview: format_preview.map(PreviewMode::from),
             select,
             extend_select: extend_select.unwrap_or_default(),
             ignore: ignore.unwrap_or_default(),

@@ -62,6 +62,29 @@ your Fortitude configuration file.
 See the [fix documentation](../linter.md#fix-safety) for more details on
 how fix safety works.
 
+## Formatting
+
+!!! warning
+    The formatter is experimental and only runs in preview mode. Enable it with
+    [`format.preview`](../settings.md#format_preview) in your configuration file, or with the
+    [`format.preview`](settings.md#format_preview) editor setting.
+
+The server can format whole documents. The formatter settings, such as the
+[`indent-width`](../settings.md#format_indent-width), are taken from the `[format]` section of
+your configuration file, so the indentation options of your editor are ignored.
+
+For example, to format Fortran files on save in VS Code, add the following to your
+`settings.json`:
+
+```json
+{
+  "[fortran]": {
+    "editor.defaultFormatter": "PlasmaFAIR.fortitude",
+    "editor.formatOnSave": true
+  }
+}
+```
+
 ## Hover
 
 The server can provide the rule documentation when focusing over an `allow` code in the comment.

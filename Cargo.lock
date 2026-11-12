@@ -1073,6 +1073,7 @@ version = "0.7.5"
 dependencies = [
  "anyhow",
  "crossbeam",
+ "fortitude_formatter",
  "fortitude_linter",
  "fortitude_workspace",
  "globset",

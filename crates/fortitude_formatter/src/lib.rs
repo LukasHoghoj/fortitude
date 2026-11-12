@@ -9,6 +9,7 @@ use std::{
     collections::HashMap,
     io::Write,
     path::{Path, PathBuf},
+    sync::{Arc, LazyLock, Mutex, PoisonError},
 };
 
 use anyhow::Result;
@@ -45,6 +46,19 @@ pub fn create_formatter(indent_width: usize) -> Language {
         grammar,
         indent: Some(" ".repeat(indent_width)),
     }
+}
+
+/// The formatter indenting by `indent_width` spaces per level, created only once
+/// per indent width, as building the topiary query is relatively slow
+pub fn cached_formatter(indent_width: usize) -> Arc<Language> {
+    static FORMATTERS: LazyLock<Mutex<HashMap<usize, Arc<Language>>>> =
+        LazyLock::new(Mutex::default);
+
+    let mut formatters = FORMATTERS.lock().unwrap_or_else(PoisonError::into_inner);
+    formatters
+        .entry(indent_width)
+        .or_insert_with(|| Arc::new(create_formatter(indent_width)))
+        .clone()
 }
 
 /// Number of spaces per level of indentation of the formatter

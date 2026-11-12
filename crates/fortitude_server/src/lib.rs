@@ -17,6 +17,7 @@ use crate::server::ConnectionInitializer;
 
 mod edit;
 mod fix;
+mod format;
 mod lint;
 mod logging;
 mod resolve;

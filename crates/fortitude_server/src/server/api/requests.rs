@@ -2,6 +2,7 @@ mod code_action;
 mod code_action_resolve;
 mod diagnostic;
 mod execute_command;
+mod format;
 mod hover;
 mod shutdown;
 
@@ -13,5 +14,6 @@ pub(super) use code_action::CodeActions;
 pub(super) use code_action_resolve::CodeActionResolve;
 pub(super) use diagnostic::DocumentDiagnostic;
 pub(super) use execute_command::ExecuteCommand;
+pub(super) use format::Format;
 pub(super) use hover::Hover;
 pub(super) use shutdown::ShutdownHandler;

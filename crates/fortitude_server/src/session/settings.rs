@@ -77,6 +77,7 @@ pub(crate) struct ClientSettings {
 pub(crate) struct EditorSettings {
     pub(super) configuration: Option<ResolvedConfiguration>,
     pub(super) check_preview: Option<bool>,
+    pub(super) format_preview: Option<bool>,
     pub(super) select: Option<Vec<RuleSelector>>,
     pub(super) extend_select: Option<Vec<RuleSelector>>,
     pub(super) ignore: Option<Vec<RuleSelector>>,

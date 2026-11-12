@@ -80,6 +80,7 @@ pub struct ClientOptions {
     configuration: Option<ClientConfiguration>,
     fix_all: Option<bool>,
     check: Option<CheckOptions>,
+    format: Option<FormatOptions>,
     code_action: Option<CodeActionOptions>,
     exclude: Option<Vec<String>>,
     line_length: Option<usize>,
@@ -99,6 +100,7 @@ impl ClientOptions {
     pub(crate) fn into_settings(self) -> Result<ClientSettings, ClientSettings> {
         let code_action = self.code_action.unwrap_or_default();
         let check = self.check.unwrap_or_default();
+        let format = self.format.unwrap_or_default();
         let mut contains_invalid_settings = false;
 
         let configuration = self.configuration.and_then(|configuration| {
@@ -115,6 +117,7 @@ impl ClientOptions {
         let editor_settings = EditorSettings {
             configuration,
             check_preview: check.preview,
+            format_preview: format.preview,
             select: check.select.and_then(|select| {
                 Self::resolve_rules(
                     &select,
@@ -183,6 +186,9 @@ impl ClientOptions {
             None => self.check = Some(CheckOptions::default().with_preview(preview)),
             Some(check) => check.set_preview(preview),
         }
+        self.format
+            .get_or_insert_with(FormatOptions::default)
+            .preview = Some(preview);
     }
 }
 
@@ -191,6 +197,7 @@ impl Combine for ClientOptions {
         self.configuration.combine_with(other.configuration);
         self.fix_all.combine_with(other.fix_all);
         self.check.combine_with(other.check);
+        self.format.combine_with(other.format);
         self.code_action.combine_with(other.code_action);
         self.exclude.combine_with(other.exclude);
         self.line_length.combine_with(other.line_length);
@@ -250,6 +257,19 @@ impl Combine for CheckOptions {
         self.select.combine_with(other.select);
         self.extend_select.combine_with(other.extend_select);
         self.ignore.combine_with(other.ignore);
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
+#[serde(rename_all = "camelCase")]
+struct FormatOptions {
+    preview: Option<bool>,
+}
+
+impl Combine for FormatOptions {
+    fn combine_with(&mut self, other: Self) {
+        self.preview.combine_with(other.preview);
     }
 }
 
@@ -521,6 +541,7 @@ mod tests {
                             ignore: None,
                         },
                     ),
+                    format: None,
                     code_action: Some(
                         CodeActionOptions {
                             fix_violation: Some(
@@ -550,6 +571,7 @@ mod tests {
                             true,
                         ),
                         check: None,
+                        format: None,
                         code_action: Some(
                             CodeActionOptions {
                                 fix_violation: Some(
@@ -594,6 +616,7 @@ mod tests {
                                 ignore: None,
                             },
                         ),
+                        format: None,
                         code_action: Some(
                             CodeActionOptions {
                                 fix_violation: Some(
@@ -656,6 +679,7 @@ mod tests {
                 editor_settings: EditorSettings {
                     configuration: None,
                     check_preview: Some(true),
+                    format_preview: None,
                     select: Some(vec![
                         RuleSelector::Category(Category::Correctness),
                         RuleSelector::Category(Category::Obsolescent)
@@ -689,6 +713,7 @@ mod tests {
                 editor_settings: EditorSettings {
                     configuration: None,
                     check_preview: Some(false),
+                    format_preview: None,
                     select: Some(vec![
                         RuleSelector::Category(Category::Correctness),
                         RuleSelector::Category(Category::Obsolescent)
@@ -728,6 +753,7 @@ mod tests {
                             ),
                         },
                     ),
+                    format: None,
                     code_action: Some(
                         CodeActionOptions {
                             fix_violation: None,
@@ -777,6 +803,7 @@ mod tests {
                 editor_settings: EditorSettings {
                     configuration: None,
                     check_preview: None,
+                    format_preview: None,
                     select: None,
                     extend_select: None,
                     ignore: Some(vec![RuleSelector::from_str("FORT001").unwrap()]),
@@ -801,6 +828,7 @@ mod tests {
 
     fn assert_preview_client_options(options: &ClientOptions, preview: bool) {
         assert_eq!(options.check.as_ref().unwrap().preview.unwrap(), preview);
+        assert_eq!(options.format.as_ref().unwrap().preview.unwrap(), preview);
     }
 
     fn assert_preview_all_options(all_options: &AllOptions, preview: bool) {
