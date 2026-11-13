@@ -1,0 +1,94 @@
+---
+source: crates/fortitude_linter/src/rules/error/mod.rs
+expression: diagnostics
+---
+E002 [*] Text `USE_MPI` after `#endif` is not in a comment
+  --> ./resources/test/fixtures/error/E002.f90:23:8
+   |
+21 | #ifdef USE_MPI
+22 |     x = x + 1
+23 | #endif USE_MPI
+   |        ^^^^^^^
+24 | #ifdef USE_MPI
+25 |     x = x + 1
+   |
+help: Write as `/* USE_MPI */`
+20 | ! Fail: bare labels
+21 | #ifdef USE_MPI
+22 |     x = x + 1
+   - #endif USE_MPI
+23 + #endif /* USE_MPI */
+24 | #ifdef USE_MPI
+25 |     x = x + 1
+26 | #else USE_MPI
+
+E002 [*] Text `USE_MPI` after `#else` is not in a comment
+  --> ./resources/test/fixtures/error/E002.f90:26:7
+   |
+24 | #ifdef USE_MPI
+25 |     x = x + 1
+26 | #else USE_MPI
+   |       ^^^^^^^
+27 |     x = x - 1
+28 | #endif USE_MPI
+   |
+help: Write as `/* USE_MPI */`
+23 | #endif USE_MPI
+24 | #ifdef USE_MPI
+25 |     x = x + 1
+   - #else USE_MPI
+26 + #else /* USE_MPI */
+27 |     x = x - 1
+28 | #endif USE_MPI
+29 |
+
+E002 [*] Text `USE_MPI` after `#endif` is not in a comment
+  --> ./resources/test/fixtures/error/E002.f90:28:8
+   |
+26 | #else USE_MPI
+27 |     x = x - 1
+28 | #endif USE_MPI
+   |        ^^^^^^^
+29 |
+30 | ! Fail: indented directive, label followed by a comment
+   |
+help: Write as `/* USE_MPI */`
+25 |     x = x + 1
+26 | #else USE_MPI
+27 |     x = x - 1
+   - #endif USE_MPI
+28 + #endif /* USE_MPI */
+29 |
+30 | ! Fail: indented directive, label followed by a comment
+31 | #if defined(USE_MPI) && VERSION > 2
+
+E002 [*] Text `USE_MPI && VERSION > 2` after `#endif` is not in a comment
+  --> ./resources/test/fixtures/error/E002.f90:33:12
+   |
+31 | #if defined(USE_MPI) && VERSION > 2
+32 |     x = x + 1
+33 |   #  endif USE_MPI && VERSION > 2 /* parallel */
+   |            ^^^^^^^^^^^^^^^^^^^^^^
+34 |
+35 | ! Fail: no fix, as the label contains `*/`
+   |
+help: Write as `/* USE_MPI && VERSION > 2 */`
+30 | ! Fail: indented directive, label followed by a comment
+31 | #if defined(USE_MPI) && VERSION > 2
+32 |     x = x + 1
+   -   #  endif USE_MPI && VERSION > 2 /* parallel */
+33 +   #  endif /* USE_MPI && VERSION > 2 */ /* parallel */
+34 |
+35 | ! Fail: no fix, as the label contains `*/`
+36 | #ifdef USE_MPI
+
+E002 Text `USE_MPI */` after `#endif` is not in a comment
+  --> ./resources/test/fixtures/error/E002.f90:38:8
+   |
+36 | #ifdef USE_MPI
+37 |     x = x + 1
+38 | #endif USE_MPI */
+   |        ^^^^^^^^^^
+39 |   end subroutine s
+40 | end module test_uncommented_preprocessor_label
+   |

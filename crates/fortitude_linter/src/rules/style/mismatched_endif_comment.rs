@@ -268,20 +268,20 @@ mod tests {
     use super::canonical_condition;
     use test_case::test_case;
 
-    #[test_case("FLAG", Some("FLAG"))]
-    #[test_case("  FLAG  ", Some("FLAG"))]
-    #[test_case("defined(FLAG)", Some("FLAG"))]
-    #[test_case("defined ( FLAG )", Some("FLAG"))]
-    #[test_case("defined FLAG", Some("FLAG"))]
-    #[test_case("!defined(FLAG)", Some("!FLAG"))]
-    #[test_case("defined(A) && !defined(B)", Some("A&&!B"))]
-    #[test_case("(A || B)", Some("A||B"))]
-    #[test_case("(A) || (B)", Some("(A)||(B)"))]
-    #[test_case("VERSION >= 3", Some("VERSION>=3"))]
-    #[test_case("end of MPI support", None)]
-    #[test_case("defined A B", None)]
-    #[test_case("FLAG.", None)]
-    #[test_case("", None)]
+    #[test_case("FLAG", Some("FLAG"); "name")]
+    #[test_case("  FLAG  ", Some("FLAG"); "name_whitespace")]
+    #[test_case("defined(FLAG)", Some("FLAG"); "defined_parens")]
+    #[test_case("defined ( FLAG )", Some("FLAG"); "defined_parens_spaces")]
+    #[test_case("defined FLAG", Some("FLAG"); "defined_no_parens")]
+    #[test_case("!defined(FLAG)", Some("!FLAG"); "not_defined")]
+    #[test_case("defined(A) && !defined(B)", Some("A&&!B"); "and_not")]
+    #[test_case("(A || B)", Some("A||B"); "outer_parens")]
+    #[test_case("(A) || (B)", Some("(A)||(B)"); "inner_parens")]
+    #[test_case("VERSION >= 3", Some("VERSION>=3"); "comparison")]
+    #[test_case("end of MPI support", None; "prose")]
+    #[test_case("defined A B", None; "two_words")]
+    #[test_case("FLAG.", None; "invalid_character")]
+    #[test_case("", None; "empty")]
     fn canonical(text: &str, expected: Option<&str>) {
         assert_eq!(canonical_condition(text).as_deref(), expected);
     }

@@ -1050,11 +1050,6 @@ end program foo
     fortitude: 1 files scanned.
     Number of diagnostics: 2 (2 fixed, 0 remaining)
 
-    For more information about specific rules, run:
-
-        fortitude explain X001,Y002,...
-
-
     ----- stderr -----
     warning: Syntax errors detected in file: [TMP]/test.f90. Discarding all fixes except those that repair syntax errors. Some violations from the AST may be unreliable.
     ",);

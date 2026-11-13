@@ -53,7 +53,8 @@ impl Violation for UncommentedPreprocessorLabel {
 
     fn fix_title(&self) -> Option<String> {
         let Self { label, .. } = self;
-        Some(format!("Write as `/* {label} */`"))
+        // No fix is offered for a label containing `*/`.
+        (!label.contains("*/")).then(|| format!("Write as `/* {label} */`"))
     }
 }
 
@@ -116,23 +117,23 @@ mod tests {
     use super::find_label;
     use test_case::test_case;
 
-    #[test_case("#endif", None)]
-    #[test_case("#endif   ", None)]
-    #[test_case("#endif /* USE_MPI */", None)]
-    #[test_case("#endif // USE_MPI", None)]
-    #[test_case("#endif/* USE_MPI */", None)]
-    #[test_case("#else", None)]
-    #[test_case("#elif USE_MPI", None)]
-    #[test_case("#elseif USE_MPI", None)]
-    #[test_case("#endifUSE_MPI", None)]
-    #[test_case("#if USE_MPI", None)]
-    #[test_case("x = 1 ! #endif USE_MPI", None)]
-    #[test_case("#endif USE_MPI", Some(("endif", 7, "USE_MPI")))]
-    #[test_case("#endif\tUSE_MPI  ", Some(("endif", 7, "USE_MPI")))]
-    #[test_case("  #  endif USE_MPI", Some(("endif", 11, "USE_MPI")))]
-    #[test_case("#else USE_MPI", Some(("else", 6, "USE_MPI")))]
-    #[test_case("#endif !USE_MPI && X", Some(("endif", 7, "!USE_MPI && X")))]
-    #[test_case("#endif USE_MPI /* parallel */", Some(("endif", 7, "USE_MPI")))]
+    #[test_case("#endif", None; "endif")]
+    #[test_case("#endif   ", None; "endif_trailing_space")]
+    #[test_case("#endif /* USE_MPI */", None; "endif_block_comment")]
+    #[test_case("#endif // USE_MPI", None; "endif_inline_comment")]
+    #[test_case("#endif/* USE_MPI */", None; "endif_comment_no_space")]
+    #[test_case("#else", None; "else_no_label")]
+    #[test_case("#elif USE_MPI", None; "elif")]
+    #[test_case("#elseif USE_MPI", None; "elseif")]
+    #[test_case("#endifUSE_MPI", None; "endif_no_space")]
+    #[test_case("#if USE_MPI", None; "if_directive")]
+    #[test_case("x = 1 ! #endif USE_MPI", None; "fortran_comment")]
+    #[test_case("#endif USE_MPI", Some(("endif", 7, "USE_MPI")); "endif_label")]
+    #[test_case("#endif\tUSE_MPI  ", Some(("endif", 7, "USE_MPI")); "endif_tab_label")]
+    #[test_case("  #  endif USE_MPI", Some(("endif", 11, "USE_MPI")); "indented")]
+    #[test_case("#else USE_MPI", Some(("else", 6, "USE_MPI")); "else_label")]
+    #[test_case("#endif !USE_MPI && X", Some(("endif", 7, "!USE_MPI && X")); "label_expression")]
+    #[test_case("#endif USE_MPI /* parallel */", Some(("endif", 7, "USE_MPI")); "label_then_comment")]
     fn label(line: &str, expected: Option<(&str, usize, &str)>) {
         assert_eq!(find_label(line), expected);
     }

@@ -1,0 +1,108 @@
+---
+source: crates/fortitude_linter/src/rules/style/mod.rs
+expression: diagnostics
+---
+S331 [*] `#endif` comment `USE_OPENMP` does not match the condition `USE_MPI`
+  --> ./resources/test/fixtures/style/S331.f90:63:8
+   |
+61 | #ifdef USE_MPI
+62 |     x = x + 1
+63 | #endif /* USE_OPENMP */
+   |        ^^^^^^^^^^^^^^^^
+64 |
+65 | ! Fail: wrong name, inline comment
+   |
+help: Replace the comment with `USE_MPI`
+60 | ! Fail: wrong name
+61 | #ifdef USE_MPI
+62 |     x = x + 1
+   - #endif /* USE_OPENMP */
+63 + #endif /* USE_MPI */
+64 |
+65 | ! Fail: wrong name, inline comment
+66 | #ifdef USE_MPI
+note: This is an unsafe fix and may change runtime behavior
+
+S331 [*] `#endif` comment `USE_OPENMP` does not match the condition `USE_MPI`
+  --> ./resources/test/fixtures/style/S331.f90:68:8
+   |
+66 | #ifdef USE_MPI
+67 |     x = x + 1
+68 | #endif // USE_OPENMP
+   |        ^^^^^^^^^^^^^
+69 |
+70 | ! Fail: #ifdef labelled with the negation
+   |
+help: Replace the comment with `USE_MPI`
+65 | ! Fail: wrong name, inline comment
+66 | #ifdef USE_MPI
+67 |     x = x + 1
+   - #endif // USE_OPENMP
+68 + #endif // USE_MPI
+69 |
+70 | ! Fail: #ifdef labelled with the negation
+71 | #ifdef USE_MPI
+note: This is an unsafe fix and may change runtime behavior
+
+S331 [*] `#endif` comment `!USE_MPI` does not match the condition `USE_MPI`
+  --> ./resources/test/fixtures/style/S331.f90:73:8
+   |
+71 | #ifdef USE_MPI
+72 |     x = x + 1
+73 | #endif /* !USE_MPI */
+   |        ^^^^^^^^^^^^^^
+74 |
+75 | ! Fail: condition changed
+   |
+help: Replace the comment with `USE_MPI`
+70 | ! Fail: #ifdef labelled with the negation
+71 | #ifdef USE_MPI
+72 |     x = x + 1
+   - #endif /* !USE_MPI */
+73 + #endif /* USE_MPI */
+74 |
+75 | ! Fail: condition changed
+76 | #if defined(USE_MPI) && defined(USE_OPENMP)
+note: This is an unsafe fix and may change runtime behavior
+
+S331 [*] `#endif` comment `USE_MPI` does not match the condition `defined(USE_MPI) && defined(USE_OPENMP)`
+  --> ./resources/test/fixtures/style/S331.f90:78:8
+   |
+76 | #if defined(USE_MPI) && defined(USE_OPENMP)
+77 |     x = x + 1
+78 | #endif /* USE_MPI */
+   |        ^^^^^^^^^^^^^
+79 |
+80 | ! Fail: inner block labelled with the outer condition
+   |
+help: Replace the comment with `defined(USE_MPI) && defined(USE_OPENMP)`
+75 | ! Fail: condition changed
+76 | #if defined(USE_MPI) && defined(USE_OPENMP)
+77 |     x = x + 1
+   - #endif /* USE_MPI */
+78 + #endif /* defined(USE_MPI) && defined(USE_OPENMP) */
+79 |
+80 | ! Fail: inner block labelled with the outer condition
+81 | #ifdef USE_MPI
+note: This is an unsafe fix and may change runtime behavior
+
+S331 [*] `#endif` comment `USE_MPI` does not match the condition `USE_OPENMP`
+  --> ./resources/test/fixtures/style/S331.f90:84:8
+   |
+82 | #ifdef USE_OPENMP
+83 |     x = x + 1
+84 | #endif /* USE_MPI */
+   |        ^^^^^^^^^^^^^
+85 | #endif /* USE_MPI */
+86 |   end subroutine s
+   |
+help: Replace the comment with `USE_OPENMP`
+81 | #ifdef USE_MPI
+82 | #ifdef USE_OPENMP
+83 |     x = x + 1
+   - #endif /* USE_MPI */
+84 + #endif /* USE_OPENMP */
+85 | #endif /* USE_MPI */
+86 |   end subroutine s
+87 | end module test_mismatched_endif_comment
+note: This is an unsafe fix and may change runtime behavior
