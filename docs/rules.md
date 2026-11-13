@@ -8,6 +8,7 @@
 | ---- | ---- | ------- | ------: |
 | E000 | [io-error](rules/io-error.md) | {message\} | <span title='Rule is stable' style='opacity: 0.6'>✔️</span> <span title='Automatic fix not available' style='opacity: 0.1' aria-hidden='true'>🛠️</span> <span title='Rule turned on by default'>▶️</span> |
 | E001 | [syntax-error](rules/syntax-error.md) | Syntax error | <span title='Rule is stable' style='opacity: 0.6'>✔️</span> <span title='Automatic fix not available' style='opacity: 0.1' aria-hidden='true'>🛠️</span> <span title='Rule turned on by default'>▶️</span> |
+| E002 | [uncommented-preprocessor-label](rules/uncommented-preprocessor-label.md) | Text `{label}` after `#{directive}` is not in a comment | <span title='Rule is in preview'>🧪</span> <span title='Automatic fix available'>🛠️</span> <span title='Rule turned on by default'>▶️</span> |
 | E011 | [invalid-character](rules/invalid-character.md) | Invalid character '{character}' | <span title='Rule is stable' style='opacity: 0.6'>✔️</span> <span title='Automatic fix not available' style='opacity: 0.1' aria-hidden='true'>🛠️</span> <span title='Rule turned on by default'>▶️</span> |
 
 ### Correctness (C)

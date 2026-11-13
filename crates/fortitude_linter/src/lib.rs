@@ -34,6 +34,7 @@ use rules::correctness::shadowed_variable::check_shadowed_variables;
 use rules::correctness::split_escaped_quote::SplitEscapedQuote;
 use rules::error::invalid_character::check_invalid_character;
 use rules::error::syntax_error::SyntaxError;
+use rules::error::uncommented_preprocessor_label::UncommentedPreprocessorLabel;
 use rules::style::file_extensions::NonStandardFileExtension;
 use rules::style::inconsistent_dimension::check_inconsistent_dimension_rules;
 use rules::style::keywords::check_keyword_reuse;
@@ -316,6 +317,9 @@ pub(crate) fn check_path(
     if context.is_rule_enabled(Rule::TrailingWhitespace) {
         violations.extend(TrailingWhitespace::check(&context));
     }
+    if context.is_rule_enabled(Rule::UncommentedPreprocessorLabel) {
+        violations.extend(UncommentedPreprocessorLabel::check(&context));
+    }
     if context.is_rule_enabled(Rule::MissingNewlineAtEndOfFile)
         && let Some(violation) = MissingNewlineAtEndOfFile::check(&context)
     {
@@ -475,6 +479,19 @@ pub(crate) fn check_path(
 
     // Handle syntax errors
     if root.has_error() {
+        let is_syntax_repair = |diagnostic: &Diagnostic| {
+            diagnostic
+                .rule()
+                .is_some_and(|rule| SYNTAX_REPAIR_RULES.contains(&rule))
+        };
+        let kept_fixes = if violations
+            .iter()
+            .any(|diagnostic| diagnostic.fixable() && is_syntax_repair(diagnostic))
+        {
+            " except those that repair syntax errors"
+        } else {
+            ""
+        };
         // If syntax error violations are present, we can (probably) trust AST
         // violations up to the first syntax error. If we aren't tracking syntax
         // errors, we report everything but warn that the results are unreliable.
@@ -483,8 +500,9 @@ pub(crate) fn check_path(
             // Check violations for any remaining syntax errors. If any are found, discard violations
             // after it, as they may be false positives.
             warn_user_once_by_message!(
-                "Syntax errors detected in file: {}. Discarding subsequent violations from the AST and all fixes.",
-                path.to_string_lossy()
+                "Syntax errors detected in file: {}. Discarding subsequent violations from the AST and all fixes{}.",
+                path.to_string_lossy(),
+                kept_fixes
             );
             // Sort by byte-offset in the file
             violations.sort_by_key(|diagnostic| diagnostic.range().unwrap_or_default().start());
@@ -515,13 +533,16 @@ pub(crate) fn check_path(
             // If syntax errors are present but the rule is disabled, just warn
             // that false positives may be present.
             warn_user_once_by_message!(
-                "Syntax errors detected in file: {}. Discarding all fixes. Some violations from the AST may be unreliable.",
-                path.to_string_lossy()
+                "Syntax errors detected in file: {}. Discarding all fixes{}. Some violations from the AST may be unreliable.",
+                path.to_string_lossy(),
+                kept_fixes
             );
         }
-        // Disable all fixes
+        // Disable all fixes, except those that repair the syntax errors
         for diagnostic in &mut violations {
-            diagnostic.remove_fix();
+            if !is_syntax_repair(&*diagnostic) {
+                diagnostic.remove_fix();
+            }
         }
     }
 
@@ -539,6 +560,12 @@ pub(crate) fn check_path(
 }
 
 const MAX_ITERATIONS: usize = 100;
+
+/// Rules whose fixes repair syntax errors. Their fixes are kept, and applied,
+/// when a file has syntax errors, which disables the fixes of all other rules.
+/// They should only change text that the compiler ignores, such as the label
+/// in `#endif LABEL`.
+const SYNTAX_REPAIR_RULES: &[Rule] = &[Rule::UncommentedPreprocessorLabel];
 
 pub type FixTable = FxHashMap<Rule, usize>;
 
@@ -583,20 +610,41 @@ pub fn check_and_fix_file<'a>(
 
         let violations = check_path(path, &transformed, settings, &tree, ignore_allow_comments)?;
 
+        let has_error = tree.root_node().has_error();
         if iterations == 0 {
-            is_valid_syntax = !tree.root_node().has_error();
-            if !is_valid_syntax {
-                warn_user_once_by_message!(
-                    "Syntax errors detected in file: {}. No fixes will be applied.",
-                    path.to_string_lossy()
-                );
-                return Err(anyhow!(
-                    "File contains syntax errors, no fixes will be applied"
-                ));
-            }
-        } else if is_valid_syntax && tree.root_node().has_error() {
+            is_valid_syntax = !has_error;
+        }
+        if has_error && is_valid_syntax {
             report_fix_syntax_error(path, transformed.source_text(), fixed.keys().copied());
             return Err(anyhow!("Fix introduced a syntax error"));
+        }
+        if has_error {
+            // `check_path` has kept only the fixes that repair syntax errors.
+            // Apply those, and stop once there are none left.
+            if !violations.iter().any(Diagnostic::fixable) {
+                if iterations == 0 {
+                    warn_user_once_by_message!(
+                        "Syntax errors detected in file: {}. No fixes will be applied.",
+                        path.to_string_lossy()
+                    );
+                    return Err(anyhow!(
+                        "File contains syntax errors, no fixes will be applied"
+                    ));
+                }
+                warn_user_once_by_message!(
+                    "Syntax errors remain in file: {}. Only fixes that repair syntax errors were applied.",
+                    path.to_string_lossy()
+                );
+                return Ok(FixerResult {
+                    result: violations,
+                    transformed,
+                    fixed,
+                });
+            }
+        } else if !is_valid_syntax {
+            // The repairs fixed the syntax, so from here on the other fixes
+            // apply, and a new syntax error is the fault of a fix.
+            is_valid_syntax = true;
         }
 
         // Apply fix

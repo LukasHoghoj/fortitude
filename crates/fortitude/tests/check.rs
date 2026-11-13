@@ -988,7 +988,7 @@ end program foo
     Ok(())
 }
 
-/// Files with syntax errors should never be fixed under any circumstances.
+/// Files with syntax errors are never fixed, except by fixes that repair syntax errors.
 #[test]
 fn check_fix_with_syntax_errors() -> anyhow::Result<()> {
     let cmd = FortitudeCheck::with_file(
@@ -1019,6 +1019,101 @@ end program foo
     warning: Syntax errors detected in file: [TMP]/test.f90. Discarding all fixes. Some violations from the AST may be unreliable.
     warning: Syntax errors detected in file: [TMP]/test.f90. No fixes will be applied.
     ",);
+    Ok(())
+}
+
+/// Fixes that repair syntax errors are applied first, and once the file parses,
+/// the other fixes are applied too.
+#[test]
+fn check_fix_repairs_syntax_errors() -> anyhow::Result<()> {
+    let cmd = FortitudeCheck::with_file(
+        "test.f90",
+        r#"
+program foo
+  implicit none (type, external)
+  integer :: j
+  j = 2
+#ifdef USE_MPI
+  j = 3
+#endif USE_MPI
+  print *, j;
+end program foo
+"#,
+    )?;
+    assert_cmd_snapshot!(cmd.check_command()
+                         .arg("test.f90")
+                         .args(["--select=uncommented-preprocessor-label,superfluous-semicolon", "--preview", "--fix"]),
+                         @"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    fortitude: 1 files scanned.
+    Number of diagnostics: 2 (2 fixed, 0 remaining)
+
+    For more information about specific rules, run:
+
+        fortitude explain X001,Y002,...
+
+
+    ----- stderr -----
+    warning: Syntax errors detected in file: [TMP]/test.f90. Discarding all fixes except those that repair syntax errors. Some violations from the AST may be unreliable.
+    ",);
+
+    let expected = r#"
+program foo
+  implicit none (type, external)
+  integer :: j
+  j = 2
+#ifdef USE_MPI
+  j = 3
+#endif /* USE_MPI */
+  print *, j
+end program foo
+"#;
+    let transformed = fs::read_to_string(cmd.root().join("test.f90"))?;
+    assert_eq!(transformed, expected);
+    Ok(())
+}
+
+/// If syntax errors remain after the repairs, only the repairs are applied.
+#[test]
+fn check_fix_repairs_some_syntax_errors() -> anyhow::Result<()> {
+    let cmd = FortitudeCheck::with_file(
+        "test.f90",
+        r#"
+program foo
+  implicit none (type, external)
+  integer :: i
+  integer :: j
+  i = 2
+#ifdef USE_MPI
+  i = 3
+#endif USE_MPI
+  j = i ^ 2  ! This is a syntax error
+  print *, j;  ! superfluous-semicolon
+end program foo
+"#,
+    )?;
+    assert_cmd_snapshot!(cmd.check_command()
+                         .arg("test.f90")
+                         .args(["--select=uncommented-preprocessor-label,superfluous-semicolon", "--preview", "--fix"]),
+                         @"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+    test.f90:11:13: error[superfluous-semicolon] unnecessary semicolon
+    fortitude: 1 files scanned.
+    Number of diagnostics: 2 (1 fixed, 1 remaining)
+
+    ----- stderr -----
+    warning: Syntax errors detected in file: [TMP]/test.f90. Discarding all fixes except those that repair syntax errors. Some violations from the AST may be unreliable.
+    warning: Syntax errors detected in file: [TMP]/test.f90. Discarding all fixes. Some violations from the AST may be unreliable.
+    warning: Syntax errors remain in file: [TMP]/test.f90. Only fixes that repair syntax errors were applied.
+    ",);
+
+    let transformed = fs::read_to_string(cmd.root().join("test.f90"))?;
+    assert!(transformed.contains("#endif /* USE_MPI */\n"));
+    assert!(transformed.contains("print *, j;"));
     Ok(())
 }
 

@@ -112,6 +112,7 @@ pub fn code_to_rule(category: Category, code: &str) -> Option<(RuleGroup, Rule)>
         // error
         (Error, "000") => (RuleGroup::Stable, None, Default, error::ioerror::IoError),
         (Error, "001") => (RuleGroup::Stable, Ast, Default, error::syntax_error::SyntaxError),
+        (Error, "002") => (RuleGroup::Preview, None, Default, error::uncommented_preprocessor_label::UncommentedPreprocessorLabel),
         (Error, "011") => (RuleGroup::Stable, None, Default, error::invalid_character::InvalidCharacter),
 
         // correctness
