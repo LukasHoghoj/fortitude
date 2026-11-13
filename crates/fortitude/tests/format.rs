@@ -297,12 +297,13 @@ end program p
     Ok(())
 }
 
+// Indented by 4, with lines 4 to 6 out of place
 const RANGE_SOURCE: &str = "program p
-integer :: i
-do i = 1, 3
-print *, i
-end do
-x=1
+    integer :: i
+    do i = 1, 3
+print *,i
+      end do
+    x=1
 end program p
 ";
 
@@ -312,17 +313,17 @@ fn format_range_to_stdout() -> anyhow::Result<()> {
     let test_file = tempdir.path().join("test.f90");
     fs::write(&test_file, RANGE_SOURCE)?;
 
-    // Only line 4 is formatted, but indented according to the code around it
+    // Only line 4 is formatted, and indented by 4 like the code before it
     assert_cmd_snapshot!(format_command(&tempdir)?.args(["--range", "4", "test.f90"]), @r"
     success: true
     exit_code: 0
     ----- stdout -----
     program p
-    integer :: i
-    do i = 1, 3
-        print *, i
-    end do
-    x=1
+        integer :: i
+        do i = 1, 3
+            print *, i
+          end do
+        x=1
     end program p
 
     ----- stderr -----
@@ -336,7 +337,7 @@ fn format_range_in_place() -> anyhow::Result<()> {
     let test_file = tempdir.path().join("test.f90");
     fs::write(&test_file, RANGE_SOURCE)?;
 
-    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--in-place", "--range", "5-6", "test.f90"]), @r"
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--in-place", "--range", "4-6", "test.f90"]), @r"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -347,11 +348,11 @@ fn format_range_in_place() -> anyhow::Result<()> {
     assert_eq!(
         fs::read_to_string(&test_file)?,
         "program p
-integer :: i
-do i = 1, 3
-print *, i
-  end do
-  x = 1
+    integer :: i
+    do i = 1, 3
+        print *, i
+    end do
+    x = 1
 end program p
 "
     );

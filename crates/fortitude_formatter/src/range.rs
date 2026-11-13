@@ -7,6 +7,12 @@
 //! Lines that are joined, split or removed are changed together. The requested
 //! lines are first widened to whole statements, including all their
 //! continuation lines.
+//!
+//! The formatted lines are indented like the code before them, so that
+//! formatting part of a file indented differently from the formatter's settings
+//! doesn't leave it inconsistent. Their indentation is that of the last
+//! statement before the requested lines, plus the change in indentation the
+//! formatter makes from that statement, in the file's own indentation width.
 
 use std::ops::Range;
 
@@ -63,7 +69,12 @@ pub fn format_lines(
     lines: Range<usize>,
 ) -> Result<Vec<LineEdit>, FormatterError> {
     let formatted = format_text(source, language, settings)?;
-    Ok(line_edits(source, &formatted, lines))
+    Ok(line_edits(
+        source,
+        &formatted,
+        lines,
+        crate::indent_width(language),
+    ))
 }
 
 /// Apply `edits`, as returned by [`format_lines`], to `source`
@@ -80,11 +91,23 @@ pub fn apply_line_edits(source: &str, edits: &[LineEdit]) -> String {
 }
 
 /// The edits turning `source` into `formatted` that touch the statements on
-/// the given `lines` of `source`
-fn line_edits(source: &str, formatted: &str, lines: Range<usize>) -> Vec<LineEdit> {
+/// the given `lines` of `source`, indented like the code before them.
+/// `indent_width` is the formatter's indentation width.
+fn line_edits(
+    source: &str,
+    formatted: &str,
+    lines: Range<usize>,
+    indent_width: usize,
+) -> Vec<LineEdit> {
     let old: Vec<&str> = source.split_inclusive('\n').collect();
     let new: Vec<&str> = formatted.split_inclusive('\n').collect();
     let lines = widen_to_statements(&old, lines);
+
+    let old_keys: Vec<String> = old.iter().map(|line| without_whitespace(line)).collect();
+    let new_keys: Vec<String> = new.iter().map(|line| without_whitespace(line)).collect();
+    let ops = capture_diff_slices(Algorithm::Patience, &old_keys, &new_keys);
+
+    let reindent = Reindent::new(&old, &new, &ops, lines.start, indent_width);
 
     let line_offsets: Vec<usize> = std::iter::once(0)
         .chain(old.iter().scan(0, |offset, line| {
@@ -94,15 +117,12 @@ fn line_edits(source: &str, formatted: &str, lines: Range<usize>) -> Vec<LineEdi
         .collect();
     let edit = |old_lines: Range<usize>, new_lines: Range<usize>| LineEdit {
         source_range: line_offsets[old_lines.start]..line_offsets[old_lines.end],
-        new_text: new[new_lines].concat(),
+        new_text: new_lines.map(|line| reindent.line(line)).collect(),
         lines: old_lines,
     };
 
-    let old_keys: Vec<String> = old.iter().map(|line| without_whitespace(line)).collect();
-    let new_keys: Vec<String> = new.iter().map(|line| without_whitespace(line)).collect();
-
     let mut edits = Vec::new();
-    for op in capture_diff_slices(Algorithm::Patience, &old_keys, &new_keys) {
+    for op in ops {
         match op {
             DiffOp::Equal {
                 old_index,
@@ -112,7 +132,7 @@ fn line_edits(source: &str, formatted: &str, lines: Range<usize>) -> Vec<LineEdi
                 // Lines differing only in whitespace are changed one by one
                 for i in 0..len {
                     let (old_line, new_line) = (old_index + i, new_index + i);
-                    if lines.contains(&old_line) && old[old_line] != new[new_line] {
+                    if lines.contains(&old_line) && old[old_line] != reindent.line(new_line) {
                         edits.push(edit(old_line..old_line + 1, new_line..new_line + 1));
                     }
                 }
@@ -131,6 +151,157 @@ fn line_edits(source: &str, formatted: &str, lines: Range<usize>) -> Vec<LineEdi
         }
     }
     edits
+}
+
+/// Indents formatted lines like the source before the formatted range
+struct Reindent<'a> {
+    new: &'a [&'a str],
+    /// Whether each formatted line starts within a character context
+    in_string: Vec<bool>,
+    /// The first line of the statement on each formatted line
+    statement_start: Vec<usize>,
+    /// The indentation of the anchor statement in the source and formatted
+    /// text, if there is one
+    anchor: Option<(usize, usize)>,
+    /// The indentation width of the source
+    source_width: usize,
+    /// The indentation width of the formatter
+    formatter_width: usize,
+}
+
+impl<'a> Reindent<'a> {
+    fn new(
+        old: &[&str],
+        new: &'a [&'a str],
+        ops: &[DiffOp],
+        start: usize,
+        formatter_width: usize,
+    ) -> Self {
+        // The formatted line of each source line whose text is unchanged
+        let mut formatted_line = vec![None; old.len()];
+        for op in ops {
+            if let DiffOp::Equal {
+                old_index,
+                new_index,
+                len,
+            } = *op
+            {
+                for i in 0..len {
+                    formatted_line[old_index + i] = Some(new_index + i);
+                }
+            }
+        }
+
+        let old_starts = statement_starts(old);
+        // The last statement before the range that the formatter keeps
+        let anchor = (0..start.min(old.len())).rev().find_map(|line| {
+            let new_line = formatted_line[line]?;
+            old_starts[line].then(|| (indentation(old[line]), indentation(new[new_line])))
+        });
+
+        let new_continuation = continuation(new);
+        let mut statement_start = Vec::with_capacity(new.len());
+        for line in 0..new.len() {
+            statement_start.push(if line > 0 && new_continuation[line - 1].continued {
+                statement_start[line - 1]
+            } else {
+                line
+            });
+        }
+
+        Self {
+            new,
+            in_string: new_continuation.iter().map(|c| c.in_string).collect(),
+            statement_start,
+            anchor,
+            source_width: source_indent_width(old, &old_starts).unwrap_or(formatter_width),
+            formatter_width: formatter_width.max(1),
+        }
+    }
+
+    /// The formatted line `line`, indented like the source
+    fn line(&self, line: usize) -> String {
+        let text = self.new[line];
+        match self.indent(line) {
+            Some(indent) => format!("{}{}", " ".repeat(indent), text.trim_start()),
+            None => text.to_string(),
+        }
+    }
+
+    /// The indentation of the formatted line `line`, or `None` to keep it as
+    /// formatted
+    fn indent(&self, line: usize) -> Option<usize> {
+        let (source_anchor, formatted_anchor) = self.anchor?;
+        let text = self.new[line];
+        let content = text.trim_start();
+        let indent = indentation(text);
+        if content.trim().is_empty() {
+            return None;
+        }
+        if self.in_string[line] {
+            // Whitespace continuing a string without a leading `&` is part of
+            // the string. Otherwise, the formatter keeps the alignment of the
+            // `&`, so keep it relative to the start of the statement.
+            if !content.starts_with('&') {
+                return None;
+            }
+            let start = self.statement_start[line];
+            let start_indent = indentation(self.new[start]);
+            let base = self.indent(start).unwrap_or(start_indent);
+            return Some(base + indent.saturating_sub(start_indent));
+        }
+        // Lines in the first column, such as program units and preprocessor
+        // directives, stay there
+        if indent == 0 {
+            return None;
+        }
+        let change = (indent as isize - formatted_anchor as isize) * self.source_width as isize;
+        let change = change / self.formatter_width as isize;
+        Some((source_anchor as isize + change).max(0) as usize)
+    }
+}
+
+/// The number of columns of leading whitespace of `line`
+fn indentation(line: &str) -> usize {
+    line.len() - line.trim_start_matches([' ', '\t']).len()
+}
+
+/// Whether `line` has code on it, rather than being blank, a comment or a
+/// preprocessor directive
+fn is_code(line: &str) -> bool {
+    let content = line.trim_start();
+    !(content.trim().is_empty() || content.starts_with('!') || content.starts_with('#'))
+}
+
+/// For each line, whether it is the first line of a statement with code on it
+fn statement_starts(lines: &[&str]) -> Vec<bool> {
+    let continued = continued_lines(lines);
+    (0..lines.len())
+        .map(|line| is_code(lines[line]) && (line == 0 || !continued[line - 1]))
+        .collect()
+}
+
+/// The indentation width used in the source: the most common increase in
+/// indentation from one statement to the next, the smallest if several are
+/// as common
+fn source_indent_width(lines: &[&str], starts: &[bool]) -> Option<usize> {
+    let mut counts = std::collections::BTreeMap::new();
+    let mut previous = None;
+    for (line, _) in lines.iter().zip(starts).filter(|(_, start)| **start) {
+        let indent = indentation(line);
+        if let Some(previous) = previous
+            && indent > previous
+        {
+            *counts.entry(indent - previous).or_insert(0) += 1;
+        }
+        previous = Some(indent);
+    }
+    // `max_by_key` returns the last maximum, so iterate from the largest width
+    counts
+        .into_iter()
+        .rev()
+        .max_by_key(|&(_, count)| count)
+        .map(|(width, _)| width)
 }
 
 fn without_whitespace(line: &str) -> String {
@@ -157,17 +328,35 @@ fn widen_to_statements(lines: &[&str], range: Range<usize>) -> Range<usize> {
 /// is the case if the line ends with `&`, outside of comments, or if it is a
 /// comment or blank line within a continued statement.
 fn continued_lines(lines: &[&str]) -> Vec<bool> {
-    let mut continued = Vec::with_capacity(lines.len());
+    continuation(lines).iter().map(|c| c.continued).collect()
+}
+
+/// How a line relates to the statements continued around it
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Continuation {
+    /// The statement on this line continues on the next line
+    continued: bool,
+    /// This line starts within a character context continued from the
+    /// previous line
+    in_string: bool,
+}
+
+fn continuation(lines: &[&str]) -> Vec<Continuation> {
+    let mut result = Vec::with_capacity(lines.len());
     // Whether the previous line was continued, and the quote of a character
     // context it was continued in
     let mut previous = false;
     let mut open_quote = None;
 
     for line in lines {
+        let in_string = open_quote.is_some();
         let mut chars = line.trim_start().chars().peekable();
         // Like comments, preprocessor directives don't end a continued statement
         if open_quote.is_none() && chars.peek() == Some(&'#') {
-            continued.push(previous);
+            result.push(Continuation {
+                continued: previous,
+                in_string,
+            });
             continue;
         }
         if open_quote.is_some() && chars.peek() == Some(&'&') {
@@ -203,9 +392,12 @@ fn continued_lines(lines: &[&str]) -> Vec<bool> {
         };
         open_quote = if is_continued { quote } else { None };
         previous = is_continued;
-        continued.push(is_continued);
+        result.push(Continuation {
+            continued: is_continued,
+            in_string,
+        });
     }
-    continued
+    result
 }
 
 #[cfg(test)]
@@ -256,7 +448,7 @@ end program p
             "program p
 integer :: i
 do i = 1, 3
-    print *, i
+  print *, i
 end do
 x=1
 end program p
@@ -272,8 +464,8 @@ end program p
 integer :: i
 do i = 1, 3
 print *, i
-  end do
-  x = 1
+end do
+x = 1
 end program p
 "
         );
@@ -333,7 +525,8 @@ end program p
     }
 
     /// Formatting each line of the fixtures in turn gives the same result as
-    /// formatting the whole file
+    /// formatting the whole file. Their indentation is removed first, as lines
+    /// are otherwise indented like the fixture rather than the formatter.
     #[test]
     fn line_by_line_matches_whole_file() {
         let language = cached_formatter(2);
@@ -342,7 +535,11 @@ end program p
         let mut checked = 0;
         for entry in std::fs::read_dir(fixtures).unwrap() {
             let path = entry.unwrap().path();
-            let source = std::fs::read_to_string(&path).unwrap();
+            let source: String = std::fs::read_to_string(&path)
+                .unwrap()
+                .split_inclusive('\n')
+                .map(|line| line.trim_start_matches([' ', '\t']))
+                .collect();
             let expected = format_text(&source, &language, &settings()).unwrap();
 
             let mut text = source.clone();
@@ -367,6 +564,97 @@ end program p
             checked += 1;
         }
         assert!(checked > 30);
+    }
+
+    #[test]
+    fn matches_source_indent_width() {
+        let source = "module m
+contains
+    subroutine s(x)
+        integer :: x
+        do x = 1, 3
+x=x+1
+        end do
+    end subroutine s
+end module m
+";
+        // Indented by 4, like the code before it, rather than by 2
+        assert_eq!(
+            format_range(source, 5..6),
+            "module m
+contains
+    subroutine s(x)
+        integer :: x
+        do x = 1, 3
+            x = x + 1
+        end do
+    end subroutine s
+end module m
+"
+        );
+    }
+
+    #[test]
+    fn matches_inconsistent_indentation() {
+        let source = "program p
+integer :: i
+do i = 1, 3
+   print *, i
+   if (i > 1) then
+print *, 'big'
+   end if
+end do
+end program p
+";
+        // One level of 3 inside the `if`, although the program's body isn't
+        // indented at all
+        assert_eq!(
+            format_range(source, 5..6),
+            "program p
+integer :: i
+do i = 1, 3
+   print *, i
+   if (i > 1) then
+      print *, 'big'
+   end if
+end do
+end program p
+"
+        );
+    }
+
+    #[test]
+    fn keeps_string_continuation_and_first_column() {
+        let source = "module m
+contains
+    subroutine s
+        character(len=20) :: c
+c='abc&
+  def'
+c='abc&
+         &def'
+!$omp barrier
+    end subroutine s
+end module m
+";
+        // The alignment of `&` continuing a string is kept relative to the
+        // statement, rather than scaled like indentation, and the directive
+        // stays in the first column
+        assert_eq!(
+            format_range(source, 4..9),
+            "module m
+contains
+    subroutine s
+        character(len=20) :: c
+        c = 'abc&
+          &  def'
+        c = 'abc&
+                 &def'
+!$omp barrier
+    end subroutine s
+end module m
+"
+        );
     }
 
     #[test]

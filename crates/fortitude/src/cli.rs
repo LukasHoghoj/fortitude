@@ -826,7 +826,8 @@ pub struct FormatCommand {
     /// Only format the given lines of a single file, e.g. `--range 5-12`, or
     /// `--range 7` for one line. Lines are numbered from 1 and the range includes
     /// both ends. It is widened to the whole statements on these lines, which are
-    /// indented according to the code around them.
+    /// indented like the code before them, in the indentation width the file
+    /// already uses.
     #[arg(long, value_name = "START-END")]
     pub range: Option<LineRange>,
     /// Enable preview mode; enables unstable formatting.
