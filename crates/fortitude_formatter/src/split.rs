@@ -80,15 +80,15 @@ pub(crate) fn split_long_strings(lines: &mut Vec<String>, line_length: usize, in
     let mut i = 0;
     while i < lines.len() {
         let line = &lines[i];
-        if line.len() > line_length {
-            if let Some(pos) = find_string_split(line, line_length.saturating_sub(1), in_string) {
-                // The first line of a statement opens a new level of indentation
-                let next_indent = indent_of(line) + if continued { 0 } else { indent };
-                let rest = format!("{}&{}", " ".repeat(next_indent), &line[pos..]);
-                lines[i].truncate(pos);
-                lines[i].push('&');
-                lines.insert(i + 1, rest);
-            }
+        if line.len() > line_length
+            && let Some(pos) = find_string_split(line, line_length.saturating_sub(1), in_string)
+        {
+            // The first line of a statement opens a new level of indentation
+            let next_indent = indent_of(line) + if continued { 0 } else { indent };
+            let rest = format!("{}&{}", " ".repeat(next_indent), &line[pos..]);
+            lines[i].truncate(pos);
+            lines[i].push('&');
+            lines.insert(i + 1, rest);
         }
         continued = is_continued(&lines[i], in_string);
         in_string = scan_line(&lines[i], in_string).open_string;
@@ -132,15 +132,16 @@ pub(crate) fn split_at_blanks(lines: &mut Vec<String>, line_length: usize, inden
     while i < lines.len() {
         let line = &lines[i];
         let is_comment = in_string.is_none() && line.trim_start().starts_with('!');
-        if line.len() > line_length && !is_comment {
-            if let Some(pos) = find_blank_split(line, line_length, in_string) {
-                // The first line of a statement opens a new level of indentation
-                let next_indent = indent_of(line) + if continued { 0 } else { indent };
-                let rest = format!("{}{}", " ".repeat(next_indent), line[pos..].trim_start());
-                let first = format!("{} &", lines[i][..pos].trim_end());
-                lines[i] = first;
-                lines.insert(i + 1, rest);
-            }
+        if line.len() > line_length
+            && !is_comment
+            && let Some(pos) = find_blank_split(line, line_length, in_string)
+        {
+            // The first line of a statement opens a new level of indentation
+            let next_indent = indent_of(line) + if continued { 0 } else { indent };
+            let rest = format!("{}{}", " ".repeat(next_indent), line[pos..].trim_start());
+            let first = format!("{} &", lines[i][..pos].trim_end());
+            lines[i] = first;
+            lines.insert(i + 1, rest);
         }
         continued = is_continued(&lines[i], in_string);
         in_string = scan_line(&lines[i], in_string).open_string;
@@ -226,13 +227,15 @@ pub(crate) fn split_long_comments(lines: &mut Vec<String>, line_length: usize) {
     let mut i = 0;
     while i < lines.len() {
         let line = &lines[i];
-        if in_string.is_none() && line.trim_start().starts_with('!') && line.len() > line_length {
-            if let Some(parts) = split_comment(line, line_length) {
-                let n = parts.len();
-                lines.splice(i..=i, parts);
-                i += n;
-                continue;
-            }
+        if in_string.is_none()
+            && line.trim_start().starts_with('!')
+            && line.len() > line_length
+            && let Some(parts) = split_comment(line, line_length)
+        {
+            let n = parts.len();
+            lines.splice(i..=i, parts);
+            i += n;
+            continue;
         }
         in_string = scan_line(&lines[i], in_string).open_string;
         i += 1;

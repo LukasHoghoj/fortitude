@@ -245,7 +245,7 @@ fn break_lines(lines: &mut Vec<String>, line_length: usize, indent: usize) -> us
     lines_changed
 }
 
-fn get_indent(line: &String) -> usize {
+fn get_indent(line: &str) -> usize {
     line.find(|c: char| !c.is_whitespace()).unwrap_or(0)
 }
 
@@ -260,7 +260,7 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
         .map(|(i, _)| i)
         .collect();
 
-    if long_lines.len() == 0 {
+    if long_lines.is_empty() {
         return 0;
     }
 
@@ -271,10 +271,10 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
     let tree = parser
         .parse_with_options(
             &mut |_byte: usize, position: Point| -> &[u8] {
-                let row = position.row as usize;
-                let column = position.column as usize;
+                let row = position.row;
+                let column = position.column;
                 if row < lines.len() {
-                    if column < lines[row].as_bytes().len() {
+                    if column < lines[row].len() {
                         &lines[row].as_bytes()[column..]
                     } else {
                         b"\n"
@@ -318,7 +318,7 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
             let range = &qc.node.range();
             if qc.index == i_root {
                 assert!(
-                    break_node_id.replace(qc.node.id()) == None,
+                    break_node_id.replace(qc.node.id()).is_none(),
                     "Should only be one root node"
                 );
                 break_ranges.insert(qc.node.id(), qc.node.byte_range());
@@ -337,7 +337,7 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
             // Can there be more than on match per capture?
         });
 
-        assert!(breaks.len() > 0, "There should be some breaks found");
+        assert!(!breaks.is_empty(), "There should be some breaks found");
         let break_node_id = break_node_id.expect("There should be some breaks found");
 
         match possible_breaks.get_mut(&break_node_id) {
@@ -345,7 +345,7 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
                 possible_breaks.insert(
                     break_node_id,
                     BreakCollection {
-                        breaks: breaks,
+                        breaks,
                         pattern_id: x.pattern_index,
                         broken,
                     },
@@ -475,7 +475,7 @@ fn get_breaks_dfs(
     breaks
 }
 
-fn node_contains_long_line(node: tree_sitter::Node<'_>, long_lines: &Vec<usize>) -> bool {
+fn node_contains_long_line(node: tree_sitter::Node<'_>, long_lines: &[usize]) -> bool {
     let a = node.start_position().row;
     let b = node.end_position().row;
 

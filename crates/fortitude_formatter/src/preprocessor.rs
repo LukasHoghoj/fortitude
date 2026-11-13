@@ -387,10 +387,10 @@ where
                             return Ok(false);
                         }
                     }
-                    if let Some(end) = cond.end {
-                        if !self.marker(end, selection, out)? {
-                            return Ok(false);
-                        }
+                    if let Some(end) = cond.end
+                        && !self.marker(end, selection, out)?
+                    {
+                        return Ok(false);
                     }
                 }
             }
