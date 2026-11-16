@@ -25,6 +25,7 @@
 ] @append_hardline
 
 (if_statement "if" @append_space)
+(arithmetic_if_statement "if" @append_space)
 (elseif_clause "elseif" @append_space)
 (elseif_clause "elseif" @append_space)
 (enumerator_statement "enumerator" @append_space)
@@ -33,13 +34,20 @@
 
 [
  ","
- (parenthesized_expression)
  (abstract_specifier)
  (procedure_qualifier)
  (block_label_start_expression)
  (intrinsic_type)
  (derived_type)
 ] @append_space
+
+; The condition of a statement is followed by a space, as in 'if (a) then'
+(if_statement (parenthesized_expression) @append_space)
+(elseif_clause (parenthesized_expression) @append_space)
+(where_statement (parenthesized_expression) @append_space)
+(elsewhere_clause (parenthesized_expression) @append_space)
+(arithmetic_if_statement (parenthesized_expression) @append_space)
+(while_statement (parenthesized_expression) @append_space)
 
 ; start end blocks (hardline)
 [
@@ -224,8 +232,6 @@
 
 ; make sure anything preceeding a comma "," has no space
 ((_) @append_antispace . ",")
-; and nothing preceding a closing bracket ")" has a space, as in 'if (.not. (a))'
-((_) @append_antispace . ")")
 
 ; make sure anything preceeding a semicolon ";" has no space
 ((_) @append_antispace . ";")
