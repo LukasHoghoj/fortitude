@@ -360,6 +360,31 @@ end program p
 }
 
 #[test]
+fn format_several_ranges() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    let test_file = tempdir.path().join("test.f90");
+    fs::write(&test_file, RANGE_SOURCE)?;
+
+    // Lines 4 and 6 are formatted, but not line 5 between them, so line 6 is
+    // indented like line 5
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--range", "6", "--range", "4", "test.f90"]), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    program p
+        integer :: i
+        do i = 1, 3
+            print *, i
+          end do
+          x = 1
+    end program p
+
+    ----- stderr -----
+    ");
+    Ok(())
+}
+
+#[test]
 fn format_range_needs_single_file() -> anyhow::Result<()> {
     let tempdir = TempDir::new()?;
     fs::write(tempdir.path().join("a.f90"), RANGE_SOURCE)?;
@@ -407,5 +432,86 @@ fn format_in_place_keeps_crlf() -> anyhow::Result<()> {
         fs::read_to_string(&test_file)?,
         FORMATTED.replace('\n', "\r\n")
     );
+    Ok(())
+}
+
+#[test]
+fn format_stdin() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    assert_cmd_snapshot!(format_command(&tempdir)?.arg("-").pass_stdin(UNFORMATTED), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    program p
+      integer :: i ! counter
+      do i = 1, 3
+        print *, i
+      end do
+    end program p
+
+    ----- stderr -----
+    ");
+    Ok(())
+}
+
+#[test]
+fn format_stdin_range() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--range", "4", "-"]).pass_stdin(RANGE_SOURCE), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    program p
+        integer :: i
+        do i = 1, 3
+            print *, i
+          end do
+        x=1
+    end program p
+
+    ----- stderr -----
+    ");
+    Ok(())
+}
+
+#[test]
+fn format_stdin_filename_finds_config() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    let subdir = tempdir.path().join("sub");
+    fs::create_dir(&subdir)?;
+    fs::write(
+        subdir.join("fortitude.toml"),
+        "[format]\nindent-width = 4\n",
+    )?;
+
+    // Indented by 4, as configured next to the named file, which needn't exist
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--stdin-filename", "sub/test.f90"]).pass_stdin(UNFORMATTED), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    program p
+        integer :: i ! counter
+        do i = 1, 3
+            print *, i
+        end do
+    end program p
+
+    ----- stderr -----
+    ");
+    Ok(())
+}
+
+#[test]
+fn format_stdin_not_in_place() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--in-place", "-"]).pass_stdin(UNFORMATTED), @r"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+
+    ----- stderr -----
+    fortitude failed
+    Error: --in-place can't be used when formatting standard input
+    ");
     Ok(())
 }

@@ -422,3 +422,10 @@ apply fixes to the current file in your buffer:
 command! FortitudeFix execute ':%! fortitude check --fix-only --quiet --stdin-filename=%'
 command! FortitudeFixUnsafe execute ':%! fortitude check --fix-only --unsafe-fixes --quiet --stdin-filename=%'
 ```
+
+Similarly, `:FortitudeFormat` formats the current file, or the selected lines
+with `:'<,'>FortitudeFormat`, using the experimental formatter:
+
+```vim
+command! -range=% FortitudeFormat execute ':%! fortitude format --preview --i-understand-the-risks --stdin-filename=% --range=<line1>-<line2>'
+```

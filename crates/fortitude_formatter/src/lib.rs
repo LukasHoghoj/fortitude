@@ -78,13 +78,13 @@ fn indent_width(language: &Language) -> usize {
 //      - Implement TextProvider for Vec<String>?
 //      - Reuse parse / parse tree
 
-/// Format `source`, or only the given `lines` of it (numbered from 0), keeping
-/// its line endings
-fn format_text_or_lines(
+/// Format `source`, or only the given ranges of `lines` of it (numbered from
+/// 0), keeping its line endings
+pub fn format_text_or_lines(
     source: &str,
     language: &Language,
     settings: &FormatSettings,
-    lines: Option<Range<usize>>,
+    lines: Option<&[Range<usize>]>,
 ) -> Result<String, FormatterError> {
     match lines {
         Some(lines) => {
@@ -95,13 +95,13 @@ fn format_text_or_lines(
     }
 }
 
-/// Format an individual file, or only the given `lines` of it (numbered from
-/// 0), writing the result to `output`
+/// Format an individual file, or only the given ranges of `lines` of it
+/// (numbered from 0), writing the result to `output`
 pub fn format_file(
     file: &Path,
     language: &Language,
     settings: &FormatSettings,
-    lines: Option<Range<usize>>,
+    lines: Option<&[Range<usize>]>,
     output: &mut impl Write,
 ) -> Result<(), FormatterError> {
     let source = std::fs::read_to_string(file)?;
@@ -110,14 +110,14 @@ pub fn format_file(
     Ok(())
 }
 
-/// Format an individual file in place, or only the given `lines` of it
-/// (numbered from 0). The file is only written if formatting changes it.
+/// Format an individual file in place, or only the given ranges of `lines` of
+/// it (numbered from 0). The file is only written if formatting changes it.
 /// Returns whether the file was changed.
 pub fn format_file_in_place(
     file: &Path,
     language: &Language,
     settings: &FormatSettings,
-    lines: Option<Range<usize>>,
+    lines: Option<&[Range<usize>]>,
 ) -> Result<bool, FormatterError> {
     let source = std::fs::read_to_string(file)?;
     let formatted = format_text_or_lines(&source, language, settings, lines)?;

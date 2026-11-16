@@ -6,12 +6,13 @@
 //! a line that is only indented or spaced differently is changed on its own.
 //! Lines that are joined, split or removed are changed together. The requested
 //! lines are first widened to whole statements, including all their
-//! continuation lines.
+//! continuation lines, and several ranges of lines are merged where they
+//! overlap or meet.
 //!
 //! The formatted lines are indented like the code before them, so that
 //! formatting part of a file indented differently from the formatter's settings
 //! doesn't leave it inconsistent. Their indentation is that of the last
-//! statement before the requested lines, plus the change in indentation the
+//! statement before their range of lines, plus the change in indentation the
 //! formatter makes from that statement, in the file's own indentation width.
 
 use std::ops::Range;
@@ -59,14 +60,14 @@ pub struct LineEdit {
     pub new_text: String,
 }
 
-/// Format `source`, returning only the edits touching the given `lines`
-/// (numbered from 0) of the statements on these lines. The edits are ordered
-/// and don't overlap.
+/// Format `source`, returning only the edits touching the statements on the
+/// given ranges of `lines` (numbered from 0), which may be in any order and
+/// overlap. The edits are ordered and don't overlap.
 pub fn format_lines(
     source: &str,
     language: &Language,
     settings: &FormatSettings,
-    lines: Range<usize>,
+    lines: &[Range<usize>],
 ) -> Result<Vec<LineEdit>, FormatterError> {
     let formatted = format_text(source, language, settings)?;
     Ok(line_edits(
@@ -91,23 +92,33 @@ pub fn apply_line_edits(source: &str, edits: &[LineEdit]) -> String {
 }
 
 /// The edits turning `source` into `formatted` that touch the statements on
-/// the given `lines` of `source`, indented like the code before them.
-/// `indent_width` is the formatter's indentation width.
+/// the given ranges of `lines` of `source`, indented like the code before
+/// them. `indent_width` is the formatter's indentation width.
 fn line_edits(
     source: &str,
     formatted: &str,
-    lines: Range<usize>,
+    lines: &[Range<usize>],
     indent_width: usize,
 ) -> Vec<LineEdit> {
     let old: Vec<&str> = source.split_inclusive('\n').collect();
     let new: Vec<&str> = formatted.split_inclusive('\n').collect();
-    let lines = widen_to_statements(&old, lines);
+    let ranges = widen_and_merge(&old, lines);
+    if ranges.is_empty() {
+        return Vec::new();
+    }
 
     let old_keys: Vec<String> = old.iter().map(|line| without_whitespace(line)).collect();
     let new_keys: Vec<String> = new.iter().map(|line| without_whitespace(line)).collect();
     let ops = capture_diff_slices(Algorithm::Patience, &old_keys, &new_keys);
 
-    let reindent = Reindent::new(&old, &new, &ops, lines.start, indent_width);
+    let reindent = Reindent::new(&old, &new, &ops, indent_width);
+    // Each range is indented like the code before it
+    let anchors: Vec<_> = ranges
+        .iter()
+        .map(|range| reindent.anchor(range.start))
+        .collect();
+    // The index of the first range ending after `line`, if any
+    let first_range_after = |line: usize| ranges.partition_point(|range| range.end <= line);
 
     let line_offsets: Vec<usize> = std::iter::once(0)
         .chain(old.iter().scan(0, |offset, line| {
@@ -115,9 +126,9 @@ fn line_edits(
             Some(*offset)
         }))
         .collect();
-    let edit = |old_lines: Range<usize>, new_lines: Range<usize>| LineEdit {
+    let edit = |old_lines: Range<usize>, new_lines: Range<usize>, anchor| LineEdit {
         source_range: line_offsets[old_lines.start]..line_offsets[old_lines.end],
-        new_text: new_lines.map(|line| reindent.line(line)).collect(),
+        new_text: new_lines.map(|line| reindent.line(line, anchor)).collect(),
         lines: old_lines,
     };
 
@@ -132,20 +143,37 @@ fn line_edits(
                 // Lines differing only in whitespace are changed one by one
                 for i in 0..len {
                     let (old_line, new_line) = (old_index + i, new_index + i);
-                    if lines.contains(&old_line) && old[old_line] != reindent.line(new_line) {
-                        edits.push(edit(old_line..old_line + 1, new_line..new_line + 1));
+                    let index = first_range_after(old_line);
+                    if ranges
+                        .get(index)
+                        .is_some_and(|range| range.contains(&old_line))
+                    {
+                        let anchor = anchors[index];
+                        let new_text = reindent.line(new_line, anchor);
+                        if old[old_line] != new_text {
+                            edits.push(edit(
+                                old_line..old_line + 1,
+                                new_line..new_line + 1,
+                                anchor,
+                            ));
+                        }
                     }
                 }
             }
             _ => {
                 let (old_lines, new_lines) = (op.old_range(), op.new_range());
-                let touches = if old_lines.is_empty() {
-                    lines.contains(&old_lines.start)
-                } else {
-                    old_lines.start < lines.end && lines.start < old_lines.end
-                };
+                // The first range the changed lines touch, which may be one of
+                // several they span
+                let index = first_range_after(old_lines.start);
+                let touches = ranges.get(index).is_some_and(|range| {
+                    if old_lines.is_empty() {
+                        range.contains(&old_lines.start)
+                    } else {
+                        range.start < old_lines.end
+                    }
+                });
                 if touches {
-                    edits.push(edit(old_lines, new_lines));
+                    edits.push(edit(old_lines, new_lines, anchors[index]));
                 }
             }
         }
@@ -153,16 +181,22 @@ fn line_edits(
     edits
 }
 
-/// Indents formatted lines like the source before the formatted range
+/// The indentation of the statement that formatted lines are indented
+/// relative to, in the source and in the formatted text
+type Anchor = Option<(usize, usize)>;
+
+/// Indents formatted lines like the source before a formatted range
 struct Reindent<'a> {
+    old: &'a [&'a str],
     new: &'a [&'a str],
+    /// The formatted line of each source line whose text is unchanged
+    formatted_line: Vec<Option<usize>>,
+    /// Whether each source line is the first line of a statement
+    old_starts: Vec<bool>,
     /// Whether each formatted line starts within a character context
     in_string: Vec<bool>,
     /// The first line of the statement on each formatted line
     statement_start: Vec<usize>,
-    /// The indentation of the anchor statement in the source and formatted
-    /// text, if there is one
-    anchor: Option<(usize, usize)>,
     /// The indentation width of the source
     source_width: usize,
     /// The indentation width of the formatter
@@ -170,13 +204,7 @@ struct Reindent<'a> {
 }
 
 impl<'a> Reindent<'a> {
-    fn new(
-        old: &[&str],
-        new: &'a [&'a str],
-        ops: &[DiffOp],
-        start: usize,
-        formatter_width: usize,
-    ) -> Self {
+    fn new(old: &'a [&'a str], new: &'a [&'a str], ops: &[DiffOp], formatter_width: usize) -> Self {
         // The formatted line of each source line whose text is unchanged
         let mut formatted_line = vec![None; old.len()];
         for op in ops {
@@ -193,12 +221,6 @@ impl<'a> Reindent<'a> {
         }
 
         let old_starts = statement_starts(old);
-        // The last statement before the range that the formatter keeps
-        let anchor = (0..start.min(old.len())).rev().find_map(|line| {
-            let new_line = formatted_line[line]?;
-            old_starts[line].then(|| (indentation(old[line]), indentation(new[new_line])))
-        });
-
         let new_continuation = continuation(new);
         let mut statement_start = Vec::with_capacity(new.len());
         for line in 0..new.len() {
@@ -210,19 +232,32 @@ impl<'a> Reindent<'a> {
         }
 
         Self {
+            old,
             new,
+            formatted_line,
             in_string: new_continuation.iter().map(|c| c.in_string).collect(),
             statement_start,
-            anchor,
             source_width: source_indent_width(old, &old_starts).unwrap_or(formatter_width),
+            old_starts,
             formatter_width: formatter_width.max(1),
         }
     }
 
-    /// The formatted line `line`, indented like the source
-    fn line(&self, line: usize) -> String {
+    /// The anchor of a range starting at the source line `start`: the last
+    /// statement before it that the formatter keeps
+    fn anchor(&self, start: usize) -> Anchor {
+        (0..start.min(self.old.len())).rev().find_map(|line| {
+            let new_line = self.formatted_line[line]?;
+            self.old_starts[line]
+                .then(|| (indentation(self.old[line]), indentation(self.new[new_line])))
+        })
+    }
+
+    /// The formatted line `line`, indented like the source relative to
+    /// `anchor`
+    fn line(&self, line: usize, anchor: Anchor) -> String {
         let text = self.new[line];
-        match self.indent(line) {
+        match self.indent(line, anchor) {
             Some(indent) => format!("{}{}", " ".repeat(indent), text.trim_start()),
             None => text.to_string(),
         }
@@ -230,8 +265,8 @@ impl<'a> Reindent<'a> {
 
     /// The indentation of the formatted line `line`, or `None` to keep it as
     /// formatted
-    fn indent(&self, line: usize) -> Option<usize> {
-        let (source_anchor, formatted_anchor) = self.anchor?;
+    fn indent(&self, line: usize, anchor: Anchor) -> Option<usize> {
+        let (source_anchor, formatted_anchor) = anchor?;
         let text = self.new[line];
         let content = text.trim_start();
         let indent = indentation(text);
@@ -247,7 +282,7 @@ impl<'a> Reindent<'a> {
             }
             let start = self.statement_start[line];
             let start_indent = indentation(self.new[start]);
-            let base = self.indent(start).unwrap_or(start_indent);
+            let base = self.indent(start, anchor).unwrap_or(start_indent);
             return Some(base + indent.saturating_sub(start_indent));
         }
         // Lines in the first column, such as program units and preprocessor
@@ -306,6 +341,24 @@ fn source_indent_width(lines: &[&str], starts: &[bool]) -> Option<usize> {
 
 fn without_whitespace(line: &str) -> String {
     line.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+/// Widen each of `ranges` to include the whole statements on its lines, and
+/// merge those that overlap or meet, returning them in order
+fn widen_and_merge(lines: &[&str], ranges: &[Range<usize>]) -> Vec<Range<usize>> {
+    let mut widened: Vec<_> = ranges
+        .iter()
+        .map(|range| widen_to_statements(lines, range.clone()))
+        .collect();
+    widened.sort_by_key(|range| range.start);
+    let mut merged: Vec<Range<usize>> = Vec::with_capacity(widened.len());
+    for range in widened {
+        match merged.last_mut() {
+            Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+            _ => merged.push(range),
+        }
+    }
+    merged
 }
 
 /// Widen `lines` to include the whole statements on these lines
@@ -416,6 +469,11 @@ mod tests {
 
     /// Format `lines` of `source`, returning the result
     fn format_range(source: &str, lines: std::ops::Range<usize>) -> String {
+        format_ranges(source, &[lines])
+    }
+
+    /// Format the given ranges of lines of `source`, returning the result
+    fn format_ranges(source: &str, lines: &[std::ops::Range<usize>]) -> String {
         let language = cached_formatter(2);
         let edits = format_lines(source, &language, &settings(), lines).unwrap();
         apply_line_edits(source, &edits)
@@ -490,13 +548,69 @@ end program p
         let language = cached_formatter(2);
         let formatted = format_text(SOURCE, &language, &settings()).unwrap();
         assert_eq!(
-            format_lines(&formatted, &language, &settings(), 0..usize::MAX).unwrap(),
+            format_lines(&formatted, &language, &settings(), &[0..usize::MAX]).unwrap(),
             vec![]
         );
         // Lines formatted already aren't changed, even if others are
         assert_eq!(
-            format_lines(SOURCE, &language, &settings(), 0..1).unwrap(),
+            format_lines(SOURCE, &language, &settings(), &[0..1]).unwrap(),
             vec![]
+        );
+    }
+
+    #[test]
+    fn formats_several_ranges() {
+        // Lines 4 and 6, but not line 5 between them
+        assert_eq!(
+            format_ranges(SOURCE, &[5..6, 3..4]),
+            "program p
+integer :: i
+do i = 1, 3
+  print *, i
+end do
+x = 1
+end program p
+"
+        );
+    }
+
+    #[test]
+    fn overlapping_and_adjacent_ranges_are_merged() {
+        for ranges in [&[3..5, 4..6][..], &[3..4, 4..6], &[4..6, 3..5, 3..4]] {
+            assert_eq!(format_ranges(SOURCE, ranges), format_range(SOURCE, 3..6));
+        }
+        assert_eq!(format_ranges(SOURCE, &[]), SOURCE);
+    }
+
+    #[test]
+    fn each_range_is_indented_like_the_code_before_it() {
+        let source = "module m
+contains
+    subroutine s(x)
+        integer :: x
+x=1
+    end subroutine s
+  subroutine t(y)
+    integer :: y
+y=2
+  end subroutine t
+end module m
+";
+        // Indented by 4 in `s`, and by 2 in `t`
+        assert_eq!(
+            format_ranges(source, &[4..5, 8..9]),
+            "module m
+contains
+    subroutine s(x)
+        integer :: x
+        x = 1
+    end subroutine s
+  subroutine t(y)
+    integer :: y
+    y = 2
+  end subroutine t
+end module m
+"
         );
     }
 
@@ -545,7 +659,7 @@ end program p
             let mut text = source.clone();
             let mut line = 0;
             while line < text.lines().count() {
-                let edits = format_lines(&text, &language, &settings(), line..line + 1).unwrap();
+                let edits = format_lines(&text, &language, &settings(), &[line..line + 1]).unwrap();
                 // Continue with the line after this one, or after the lines
                 // replacing it, in the edited text
                 let mut next = line + 1;

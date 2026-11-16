@@ -800,10 +800,10 @@ pub struct ExplainCommand {
 #[derive(Debug, clap::Parser, Deserialize, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct FormatCommand {
-    /// List of files or directories to format. Directories are searched recursively for
-    /// Fortran files. The `--file-extensions` option can be used to control which files
-    /// are included in the search.
-    #[arg(default_value = ".")]
+    /// List of files or directories to format [default: .]. Directories are searched
+    /// recursively for Fortran files. The `--file-extensions` option can be used to
+    /// control which files are included in the search. Pass `-` to format standard
+    /// input, printing the result to standard output.
     pub files: Option<Vec<PathBuf>>,
     /// File extensions to format
     #[arg(
@@ -823,13 +823,17 @@ pub struct FormatCommand {
     /// written if formatting changes them.
     #[arg(long, action = SetTrue)]
     pub in_place: Option<bool>,
+    /// Format standard input, printing the result to standard output. The name is used
+    /// to find the configuration file, and in error messages.
+    #[arg(long, value_name = "PATH", help_heading = "File selection")]
+    pub stdin_filename: Option<PathBuf>,
     /// Only format the given lines of a single file, e.g. `--range 5-12`, or
     /// `--range 7` for one line. Lines are numbered from 1 and the range includes
     /// both ends. It is widened to the whole statements on these lines, which are
     /// indented like the code before them, in the indentation width the file
-    /// already uses.
-    #[arg(long, value_name = "START-END")]
-    pub range: Option<LineRange>,
+    /// already uses. Repeat the option to format several ranges.
+    #[arg(long = "range", value_name = "START-END")]
+    pub ranges: Vec<LineRange>,
     /// Enable preview mode; enables unstable formatting.
     /// Use `--no-preview` to disable.
     #[arg(long, overrides_with("no_preview"), action = SetTrue)]
@@ -863,7 +867,8 @@ pub struct FormatArgs {
     pub files: Vec<PathBuf>,
     pub i_understand_the_risks: bool,
     pub in_place: bool,
-    pub range: Option<LineRange>,
+    pub stdin_filename: Option<PathBuf>,
+    pub ranges: Vec<LineRange>,
 }
 
 /// A range of lines, numbered from 1 and including both ends
@@ -917,7 +922,8 @@ impl FormatCommand {
             files: self.files.unwrap_or_default(),
             i_understand_the_risks: self.i_understand_the_risks.unwrap_or_default(),
             in_place: self.in_place.unwrap_or_default(),
-            range: self.range,
+            stdin_filename: self.stdin_filename,
+            ranges: self.ranges,
         };
 
         let per_flag_overrides = ExplicitConfigOverrides {

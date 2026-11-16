@@ -54,8 +54,8 @@ pub(crate) fn format_range(
     let source = document.contents();
     let settings = &query.settings().format;
     let language = cached_formatter(settings.indent_width);
-    let edits =
-        format_lines(source, &language, settings, range_lines(range)).map_err(formatter_error)?;
+    let edits = format_lines(source, &language, settings, &[range_lines(range)])
+        .map_err(formatter_error)?;
     if edits.is_empty() {
         return Ok(None);
     }
