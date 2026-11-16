@@ -1,5 +1,13 @@
 ; Lines are not broken within these nodes
 (type_qualifier) @no-break
+; nor within the left-hand side of an assignment
+(assignment_statement left: (_) @no-break)
+(pointer_association_statement . (_) @no-break)
+
+; Move the right-hand side to the next line if it then fits, rather than
+; breaking within it
+(assignment_statement "=" @break-to-fit) @root
+(pointer_association_statement "=>" @break-to-fit) @root
 
 (included_items 
 [

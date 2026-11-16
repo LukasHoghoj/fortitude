@@ -293,6 +293,7 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
     let i_root = query.capture_index_for_name("root").unwrap();
     let i_break_after = query.capture_index_for_name("break-after").unwrap();
     let i_no_break = query.capture_index_for_name("no-break").unwrap();
+    let i_break_to_fit = query.capture_index_for_name("break-to-fit").unwrap();
 
     let mut cursor = QueryCursor::new();
 
@@ -314,6 +315,14 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
         let mut break_node_id = None;
         let mut breaks = vec![];
         let mut broken = false;
+        // A '@break-to-fit' is only used if the rest of the root node then fits
+        // on the next line, and the root node isn't continued already
+        let mut fits = true;
+        let root_rows = x
+            .captures
+            .iter()
+            .find(|qc| qc.index == i_root)
+            .map(|qc| (qc.node.start_position().row, qc.node.end_position().row));
         x.captures.iter().for_each(|qc| {
             let range = &qc.node.range();
             if qc.index == i_root {
@@ -322,20 +331,30 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
                     "Should only be one root node"
                 );
                 break_ranges.insert(qc.node.id(), qc.node.byte_range());
-            } else if qc.index == i_break_after {
+            } else if qc.index == i_break_after || qc.index == i_break_to_fit {
                 let row = qc.node.start_position().row;
                 let after = &lines[range.end_point.row][range.end_point.column..];
                 // A line may end with '&' and a comment
                 let after = after.trim_start();
                 let after = after.strip_prefix('&').unwrap_or(after).trim_start();
-                broken |= after.is_empty() || after.starts_with('!');
+                let is_broken = after.is_empty() || after.starts_with('!');
+                broken |= is_broken;
+                let next_indent = get_indent(&lines[row]) + indent;
+                if qc.index == i_break_to_fit && !is_broken {
+                    let single_line = root_rows.is_some_and(|(start, end)| start == end);
+                    fits &= single_line && next_indent + after.trim_end().len() <= line_length;
+                }
                 breaks.push(Break {
                     point: range.end_point,
-                    next_indent: get_indent(&lines[row]) + indent,
+                    next_indent,
                 })
             }
             // Can there be more than on match per capture?
         });
+
+        if !fits {
+            return;
+        }
 
         assert!(!breaks.is_empty(), "There should be some breaks found");
         let break_node_id = break_node_id.expect("There should be some breaks found");
@@ -616,6 +635,7 @@ mod test {
     #[test_case(Path::new("line-length.f90"), 60, false, false)]
     #[test_case(Path::new("statements.f90"), 60, false, false)]
     #[test_case(Path::new("preprocessor-alternatives.f90"), 100, false, false)]
+    #[test_case(Path::new("assignment-lhs.f90"), 72, false, false)]
     fn format_with_options(
         path: &Path,
         line_length: usize,
