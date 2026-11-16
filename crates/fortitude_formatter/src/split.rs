@@ -98,8 +98,14 @@ pub(crate) fn split_long_strings(lines: &mut Vec<String>, line_length: usize, in
 
 /// Find the last blank outside of string literals and comments at which
 /// `line` can be broken, so that the first part followed by ' &' is not longer
-/// than `line_length`. The part after the break must contain code.
-fn find_blank_split(line: &str, line_length: usize, in_string: Option<char>) -> Option<usize> {
+/// than `line_length`. The part after the break must contain code, and the
+/// blank must be `allowed`.
+fn find_blank_split(
+    line: &str,
+    line_length: usize,
+    in_string: Option<char>,
+    allowed: impl Fn(usize) -> bool,
+) -> Option<usize> {
     let scan = scan_line(line, in_string);
     let code = line[..scan.code_end].trim_end();
     // Don't separate a trailing '&' from the code in front of it
@@ -120,28 +126,58 @@ fn find_blank_split(line: &str, line_length: usize, in_string: Option<char>) -> 
             // Keep statements following ';' on the line
             && !code[..pos].trim_end().ends_with(';')
             && !code[pos..].trim().is_empty()
+            && allowed(pos)
     })
 }
 
+/// A range of columns `start..end` of line `row` that must not be split
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct NoSplit {
+    pub row: usize,
+    pub start: usize,
+    pub end: usize,
+}
+
 /// Break lines exceeding `line_length` at blanks outside of string literals
-/// and comments, as a last resort if the syntax gives no better place.
-pub(crate) fn split_at_blanks(lines: &mut Vec<String>, line_length: usize, indent: usize) {
+/// and comments, as a last resort if the syntax gives no better place. Lines
+/// aren't broken at blanks within or directly next to the `no_split` ranges,
+/// which refer to the lines as they are passed in.
+pub(crate) fn split_at_blanks(
+    lines: &mut Vec<String>,
+    line_length: usize,
+    indent: usize,
+    no_split: &[NoSplit],
+) {
+    // For each line, the row it comes from, and what to add to its columns to
+    // get the columns of that row
+    let mut origins: Vec<(usize, isize)> = (0..lines.len()).map(|row| (row, 0)).collect();
     let mut in_string = None;
     let mut continued = false;
     let mut i = 0;
     while i < lines.len() {
         let line = &lines[i];
+        let (row, offset) = origins[i];
+        let allowed = |pos: usize| {
+            let col = pos as isize + offset;
+            !no_split
+                .iter()
+                .any(|ns| ns.row == row && ns.start as isize <= col + 1 && col <= ns.end as isize)
+        };
         let is_comment = in_string.is_none() && line.trim_start().starts_with('!');
         if line.len() > line_length
             && !is_comment
-            && let Some(pos) = find_blank_split(line, line_length, in_string)
+            && let Some(pos) = find_blank_split(line, line_length, in_string, allowed)
         {
             // The first line of a statement opens a new level of indentation
             let next_indent = indent_of(line) + if continued { 0 } else { indent };
-            let rest = format!("{}{}", " ".repeat(next_indent), line[pos..].trim_start());
+            let rest = line[pos..].trim_start();
+            let rest_start = line.len() - rest.len();
+            let rest = format!("{}{}", " ".repeat(next_indent), rest);
             let first = format!("{} &", lines[i][..pos].trim_end());
             lines[i] = first;
             lines.insert(i + 1, rest);
+            let rest_offset = offset + rest_start as isize - next_indent as isize;
+            origins.insert(i + 1, (row, rest_offset));
         }
         continued = is_continued(&lines[i], in_string);
         in_string = scan_line(&lines[i], in_string).open_string;
@@ -287,13 +323,33 @@ mod test {
     }
 
     #[test]
+    fn no_split_ranges() {
+        // Not within or next to 'if (a .and. b)', in a line that is split twice
+        let mut lines = vec!["  if (a .and. b) call foo(first, second, third, fourth)".to_string()];
+        let no_split = [NoSplit {
+            row: 0,
+            start: 5,
+            end: 16,
+        }];
+        split_at_blanks(&mut lines, 30, 2, &no_split);
+        assert_eq!(
+            lines,
+            [
+                "  if (a .and. b) call &",
+                "    foo(first, second, &",
+                "    third, fourth)",
+            ]
+        );
+    }
+
+    #[test]
     fn split_blanks() {
         let mut lines = vec![
             "  print *, 'a string with blanks', 'another one', x == y".to_string(),
             "  call foo(first, second, & ! comment".to_string(),
             "    third)".to_string(),
         ];
-        split_at_blanks(&mut lines, 30, 2);
+        split_at_blanks(&mut lines, 30, 2, &[]);
         assert_eq!(
             lines,
             [

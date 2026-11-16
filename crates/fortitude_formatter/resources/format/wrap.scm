@@ -1,8 +1,24 @@
 ; Lines are not broken within these nodes
 (type_qualifier) @no-break
-; nor within the left-hand side of an assignment
-(assignment_statement left: (_) @no-break)
-(pointer_association_statement . (_) @no-break)
+; nor within the left-hand side of an assignment. '@no-split' nodes aren't broken
+; at blanks within or next to them either, even if the line remains too long
+(assignment_statement left: (_) @no-break @no-split)
+(pointer_association_statement . (_) @no-break @no-split)
+; nor within the condition of a one-line if statement: one whose condition is
+; followed by a single statement, and no 'end if'. Nor is it broken right
+; after the condition, which is misleading (C152)
+(if_statement
+  (parenthesized_expression) @no-break @no-split
+  .
+  [(assignment_statement) (pointer_association_statement) (subroutine_call)
+   (keyword_statement) (arithmetic_if_statement) (where_statement)
+   (forall_statement) (open_statement) (close_statement) (print_statement)
+   (write_statement) (read_statement) (inquire_statement) (stop_statement)
+   (file_position_statement) (allocate_statement) (deallocate_statement)
+   (nullify_statement) (assign_statement) (coarray_statement)
+   (call_expression)]
+  .
+)
 
 ; Move the right-hand side to the next line if it then fits, rather than
 ; breaking within it

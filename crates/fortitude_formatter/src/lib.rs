@@ -27,7 +27,7 @@ use errors::{mark_error_lines, unmark_error_lines};
 use fortitude_linter::settings::FormatSettings;
 use preprocessor::format_with_directives;
 pub use range::{LineEdit, apply_line_edits, format_lines, format_text};
-use split::{split_at_blanks, split_long_comments, split_long_strings};
+use split::{NoSplit, split_at_blanks, split_long_comments, split_long_strings};
 use topiary_core::{FormatterError, Language, Operation, TopiaryQuery, formatter};
 use tree_sitter::{Point, Query, QueryCursor, StreamingIterator, Tree, TreeCursor};
 
@@ -35,8 +35,16 @@ fn topiary_query() -> &'static str {
     include_str!("../resources/format/fortran.scm")
 }
 
-fn wrap_query() -> &'static str {
-    include_str!("../resources/format/wrap.scm")
+/// The query for breaking long lines, which is only built once
+fn wrap_query() -> &'static Query {
+    static QUERY: LazyLock<Query> = LazyLock::new(|| {
+        Query::new(
+            &tree_sitter_fortran::LANGUAGE.into(),
+            include_str!("../resources/format/wrap.scm"),
+        )
+        .expect("building wrap query")
+    });
+    &QUERY
 }
 
 /// Create the topiary formatter, indenting by `indent_width` spaces per level
@@ -202,8 +210,10 @@ fn format_code(
     if settings.split_strings {
         split_long_strings(&mut lines, settings.line_length, indent);
     }
-    // Lines that are still too long are broken at blanks
-    split_at_blanks(&mut lines, settings.line_length, indent);
+    // Lines that are still too long are broken at blanks, but not where the
+    // syntax doesn't allow a break
+    let no_split = no_split_ranges(&lines, settings.line_length);
+    split_at_blanks(&mut lines, settings.line_length, indent, &no_split);
     // Comments making a line too long are put on a line of their own
     let mut lines = attach_trailing_comments(
         lines,
@@ -249,26 +259,14 @@ fn get_indent(line: &str) -> usize {
     line.find(|c: char| !c.is_whitespace()).unwrap_or(0)
 }
 
-fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) -> usize {
-    let language = tree_sitter_fortran::LANGUAGE;
+/// Parse `lines` as if they were joined by newlines
+fn parse_lines(lines: &[String]) -> Tree {
     let mut parser = tree_sitter::Parser::new();
-
-    let long_lines: Vec<usize> = lines
-        .iter()
-        .enumerate()
-        .filter(|(_, x)| x.len() > line_length)
-        .map(|(i, _)| i)
-        .collect();
-
-    if long_lines.is_empty() {
-        return 0;
-    }
-
     parser
-        .set_language(&language.into())
+        .set_language(&tree_sitter_fortran::LANGUAGE.into())
         .expect("Error loading Fortran parser");
 
-    let tree = parser
+    parser
         .parse_with_options(
             &mut |_byte: usize, position: Point| -> &[u8] {
                 let row = position.row;
@@ -286,9 +284,57 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
             None,
             None,
         )
-        .unwrap();
+        .unwrap()
+}
 
-    let query = Query::new(&language.into(), wrap_query()).unwrap();
+/// The parts of `lines` within nodes captured as '@no-split' in the wrap
+/// query, which lines aren't broken at blanks within or next to
+fn no_split_ranges(lines: &[String], line_length: usize) -> Vec<NoSplit> {
+    if lines.iter().all(|line| line.len() <= line_length) {
+        return vec![];
+    }
+    let tree = parse_lines(lines);
+    let query = wrap_query();
+    let i_no_split = query.capture_index_for_name("no-split").unwrap();
+    let text = lines.join("\n");
+
+    let mut ranges = vec![];
+    let mut cursor = QueryCursor::new();
+    let mut matches = cursor.matches(query, tree.root_node(), text.as_bytes());
+    while let Some(m) = matches.next() {
+        for qc in m.captures.iter().filter(|qc| qc.index == i_no_split) {
+            let (start, end) = (qc.node.start_position(), qc.node.end_position());
+            for row in start.row..=end.row {
+                ranges.push(NoSplit {
+                    row,
+                    start: if row == start.row { start.column } else { 0 },
+                    end: if row == end.row {
+                        end.column
+                    } else {
+                        lines[row].len()
+                    },
+                });
+            }
+        }
+    }
+    ranges
+}
+
+fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) -> usize {
+    let long_lines: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, x)| x.len() > line_length)
+        .map(|(i, _)| i)
+        .collect();
+
+    if long_lines.is_empty() {
+        return 0;
+    }
+
+    let tree = parse_lines(lines);
+
+    let query = wrap_query();
 
     let i_root = query.capture_index_for_name("root").unwrap();
     let i_break_after = query.capture_index_for_name("break-after").unwrap();
@@ -300,7 +346,7 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
     // I couldn't figure out of to get text_provider to work with Vec<String> as input
     let text = lines.join("\n");
 
-    let matches = cursor.matches(&query, tree.root_node(), text.as_bytes());
+    let matches = cursor.matches(query, tree.root_node(), text.as_bytes());
 
     let mut possible_breaks = HashMap::<usize, BreakCollection>::new();
     // Byte ranges of the nodes with breaks, and of those not to break within
@@ -315,8 +361,9 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
         let mut break_node_id = None;
         let mut breaks = vec![];
         let mut broken = false;
-        // A '@break-to-fit' is only used if the rest of the root node then fits
-        // on the next line, and the root node isn't continued already
+        // A '@break-to-fit' is only used if the line up to it and the rest of
+        // the root node on the next line then fit, and the root node isn't
+        // continued already
         let mut fits = true;
         let root_rows = x
             .captures
@@ -342,7 +389,9 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
                 let next_indent = get_indent(&lines[row]) + indent;
                 if qc.index == i_break_to_fit && !is_broken {
                     let single_line = root_rows.is_some_and(|(start, end)| start == end);
-                    fits &= single_line && next_indent + after.trim_end().len() <= line_length;
+                    fits &= single_line
+                        && range.end_point.column + 2 <= line_length
+                        && next_indent + after.trim_end().len() <= line_length;
                 }
                 breaks.push(Break {
                     point: range.end_point,
@@ -636,6 +685,7 @@ mod test {
     #[test_case(Path::new("statements.f90"), 60, false, false)]
     #[test_case(Path::new("preprocessor-alternatives.f90"), 100, false, false)]
     #[test_case(Path::new("assignment-lhs.f90"), 72, false, false)]
+    #[test_case(Path::new("one-line-if.f90"), 90, false, false)]
     fn format_with_options(
         path: &Path,
         line_length: usize,

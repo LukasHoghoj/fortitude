@@ -1,0 +1,27 @@
+---
+source: crates/fortitude_formatter/src/lib.rs
+expression: formatted
+---
+program one_line_if
+  if (first_argument > second_argument .and. third_argument < fourth_argument) result_value = 1
+  if (first_argument > second_argument .and. third_argument < fourth_argument) call &
+    some_routine( &
+    first_argument, &
+    second_argument)
+  if (first_argument > second_argument) result_value = &
+    some_function(first_argument, second_argument)
+  if (a) call a_long_subroutine_name_for_testing( &
+    first_argument, &
+    second_argument, &
+    third_argument, &
+    fourth)
+  if (first_argument > second_argument &
+    .and. third_argument < fourth_argument &
+    .or. flag) then
+    x = 1
+  end if
+  if (first_argument > second_argument &
+    .and. third_argument < fourth_argument &
+    .or. flag) then
+  end if
+end program one_line_if
