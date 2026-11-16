@@ -224,6 +224,8 @@
 
 ; make sure anything preceeding a comma "," has no space
 ((_) @append_antispace . ",")
+; and nothing preceding a closing bracket ")" has a space, as in 'if (.not. (a))'
+((_) @append_antispace . ")")
 
 ; make sure anything preceeding a semicolon ";" has no space
 ((_) @append_antispace . ";")
@@ -425,9 +427,9 @@ _ @append_antispace
 
 ; Logical and relational operators (also '.and.', '.eq.', ...) are surrounded
 ; by spaces, e.g. '0 .and. x' must not become '0.and.x'
-(logical_expression operator: _ @prepend_space @append_space)
+(logical_expression left: (_) operator: _ @prepend_space @append_space)
 (relational_expression operator: _ @prepend_space @append_space)
-; '.not.'
+; '.not.' has no left operand, so is only followed by a space, as in '(.not. a)'
 (logical_expression . _ @append_space . (_) .)
 
 ; Attribute statements: 'external f, g', 'intent(in) :: a', 'save s', ...
