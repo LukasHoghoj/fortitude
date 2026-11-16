@@ -553,6 +553,7 @@ mod test {
     #[test_case(Path::new("statements.f90"))]
     #[test_case(Path::new("attribute-statements.f90"))]
     #[test_case(Path::new("declarations-and-constructs.f90"))]
+    #[test_case(Path::new("unary-operators.f90"))]
     fn format(path: &Path) -> Result<(), FormatterError> {
         let snapshot = format!("{}", path.to_string_lossy());
 

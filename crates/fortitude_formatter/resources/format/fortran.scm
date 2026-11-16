@@ -193,10 +193,12 @@
   "=>"
   ">"
   "/="
-  "+"
-  "-"
   "/"
 ] @prepend_space @append_space
+
+; Only binary "+" and "-" have spaces around them, not unary ones as in 'a = -1'
+(math_expression operator: ["+" "-"] @prepend_space @append_space)
+(binary_expression operator: ["+" "-"] @prepend_space @append_space)
 
 ; Only a multiplication has spaces around "*", not e.g. 'a(*)', 'len=*' or
 ; 'print *'
