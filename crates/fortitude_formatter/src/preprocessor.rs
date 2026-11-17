@@ -42,7 +42,7 @@ fn split_marker(line: &str) -> Option<(&str, usize)> {
 
 /// Kind of a preprocessor directive line
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Directive {
+pub(crate) enum Directive {
     If,
     Else,
     EndIf,
@@ -50,7 +50,7 @@ enum Directive {
 }
 
 /// Classify `line` if it is a preprocessor directive (C preprocessor or fypp)
-fn directive_kind(line: &str) -> Option<Directive> {
+pub(crate) fn directive_kind(line: &str) -> Option<Directive> {
     let trimmed = line.trim_start();
     // fypp inline eval and direct call directives
     if trimmed.starts_with("$:") || trimmed.starts_with("@:") {
