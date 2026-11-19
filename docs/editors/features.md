@@ -62,6 +62,36 @@ your Fortitude configuration file.
 See the [fix documentation](../linter.md#fix-safety) for more details on
 how fix safety works.
 
+## Formatting
+
+!!! warning
+    The formatter is experimental and only runs in preview mode. Enable it with
+    [`format.preview`](../settings.md#format_preview) in your configuration file, or with the
+    [`format.preview`](settings.md#format_preview) editor setting.
+
+The server can format whole documents, or only the selected lines. When formatting a
+selection, it is widened to the whole statements on the selected lines. These are indented
+like the code before them, whether or not that code is formatted: their indentation is that of
+the last statement before the selection, plus the nesting the formatter adds, in the
+indentation width the file already uses. A selection in a module indented by 4 spaces is then
+indented by 4 spaces, even if the formatter is set to indent by 2.
+
+The other formatter settings, and the [`indent-width`](../settings.md#format_indent-width) used
+when formatting whole documents, are taken from the `[format]` section of your configuration
+file, so the indentation options of your editor are ignored.
+
+For example, to format Fortran files on save in VS Code, add the following to your
+`settings.json`:
+
+```json
+{
+  "[fortran]": {
+    "editor.defaultFormatter": "PlasmaFAIR.fortitude",
+    "editor.formatOnSave": true
+  }
+}
+```
+
 ## Hover
 
 The server can provide the rule documentation when focusing over an `allow` code in the comment.

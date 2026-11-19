@@ -626,10 +626,7 @@ impl CheckCommand {
             extend_fixable: self.extend_fixable,
             target_std: self.target_std,
             progress_bar: self.progress_bar,
-            format_indent_width: None,
-            indent_col0_comments: None,
-            split_comments: None,
-            split_strings: None,
+            ..ExplicitConfigOverrides::default()
         };
 
         let config_args = ConfigArguments::from_cli_arguments(global_options, per_flag_overrides)?;
@@ -663,6 +660,8 @@ struct ExplicitConfigOverrides {
     extend_fixable: Option<Vec<RuleSelector>>,
     target_std: Option<FortranStandard>,
     progress_bar: Option<ProgressBar>,
+    format_preview: Option<PreviewMode>,
+    format_line_length: Option<usize>,
     format_indent_width: Option<usize>,
     indent_col0_comments: Option<bool>,
     split_comments: Option<bool>,
@@ -723,6 +722,12 @@ impl ConfigurationTransformer for ExplicitConfigOverrides {
         }
         if self.output_format.is_some() {
             config.output_format = self.output_format;
+        }
+        if self.format_preview.is_some() {
+            config.format_preview = self.format_preview;
+        }
+        if self.format_line_length.is_some() {
+            config.format_line_length = self.format_line_length;
         }
         if self.format_indent_width.is_some() {
             config.format_indent_width = self.format_indent_width;
@@ -795,10 +800,10 @@ pub struct ExplainCommand {
 #[derive(Debug, clap::Parser, Deserialize, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct FormatCommand {
-    /// List of files or directories to format. Directories are searched recursively for
-    /// Fortran files. The `--file-extensions` option can be used to control which files
-    /// are included in the search.
-    #[arg(default_value = ".")]
+    /// List of files or directories to format [default: .]. Directories are searched
+    /// recursively for Fortran files. The `--file-extensions` option can be used to
+    /// control which files are included in the search. Pass `-` to format standard
+    /// input, printing the result to standard output.
     pub files: Option<Vec<PathBuf>>,
     /// File extensions to format
     #[arg(
@@ -818,6 +823,17 @@ pub struct FormatCommand {
     /// written if formatting changes them.
     #[arg(long, action = SetTrue)]
     pub in_place: Option<bool>,
+    /// Format standard input, printing the result to standard output. The name is used
+    /// to find the configuration file, and in error messages.
+    #[arg(long, value_name = "PATH", help_heading = "File selection")]
+    pub stdin_filename: Option<PathBuf>,
+    /// Only format the given lines of a single file, e.g. `--range 5-12`, or
+    /// `--range 7` for one line. Lines are numbered from 1 and the range includes
+    /// both ends. It is widened to the whole statements on these lines, which are
+    /// indented like the code before them, in the indentation width the file
+    /// already uses. Repeat the option to format several ranges.
+    #[arg(long = "range", value_name = "START-END")]
+    pub ranges: Vec<LineRange>,
     /// Enable preview mode; enables unstable formatting.
     /// Use `--no-preview` to disable.
     #[arg(long, overrides_with("no_preview"), action = SetTrue)]
@@ -851,6 +867,48 @@ pub struct FormatArgs {
     pub files: Vec<PathBuf>,
     pub i_understand_the_risks: bool,
     pub in_place: bool,
+    pub stdin_filename: Option<PathBuf>,
+    pub ranges: Vec<LineRange>,
+}
+
+/// A range of lines, numbered from 1 and including both ends
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+pub struct LineRange {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl LineRange {
+    /// The lines as a range of indices from 0
+    pub fn to_indices(self) -> std::ops::Range<usize> {
+        self.start - 1..self.end
+    }
+}
+
+impl FromStr for LineRange {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let parse = |line: &str| match line.trim().parse::<usize>() {
+            Ok(0) | Err(_) => Err(format!(
+                "invalid line number `{line}`: lines are numbered from 1"
+            )),
+            Ok(line) => Ok(line),
+        };
+        let (start, end) = match value.split_once('-') {
+            Some((start, end)) => (parse(start)?, parse(end)?),
+            None => {
+                let line = parse(value)?;
+                (line, line)
+            }
+        };
+        if end < start {
+            return Err(format!(
+                "the range ends (line {end}) before it starts (line {start})"
+            ));
+        }
+        Ok(Self { start, end })
+    }
 }
 
 impl FormatCommand {
@@ -864,12 +922,14 @@ impl FormatCommand {
             files: self.files.unwrap_or_default(),
             i_understand_the_risks: self.i_understand_the_risks.unwrap_or_default(),
             in_place: self.in_place.unwrap_or_default(),
+            stdin_filename: self.stdin_filename,
+            ranges: self.ranges,
         };
 
         let per_flag_overrides = ExplicitConfigOverrides {
             file_extensions: self.file_extensions,
-            line_length: self.line_length,
-            preview: resolve_bool_arg(self.preview, self.no_preview).map(PreviewMode::from),
+            format_line_length: self.line_length,
+            format_preview: resolve_bool_arg(self.preview, self.no_preview).map(PreviewMode::from),
             format_indent_width: self.indent,
             indent_col0_comments: self.indent_col0_comments,
             split_comments: self.split_comments,

@@ -172,3 +172,346 @@ fn format_column0_comments() -> anyhow::Result<()> {
     ");
     Ok(())
 }
+
+/// Format `UNFORMATTED` in a directory with the given `fortitude.toml`, without
+/// passing `--preview` on the command line
+fn format_with_config(config: &str, args: &[&str]) -> anyhow::Result<String> {
+    let tempdir = TempDir::new()?;
+    fs::write(tempdir.path().join("fortitude.toml"), config)?;
+    fs::write(tempdir.path().join("test.f90"), UNFORMATTED)?;
+    let output = Command::cargo_bin(BIN_NAME)?
+        .current_dir(tempdir.path())
+        .arg("format")
+        .arg("--i-understand-the-risks")
+        .args(args)
+        .arg("test.f90")
+        .output()?;
+    assert!(output.status.success(), "{output:?}");
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+#[test]
+fn format_settings_from_config_file() -> anyhow::Result<()> {
+    let config = "
+[format]
+preview = true
+indent-width = 4
+";
+    let stdout = format_with_config(config, &[])?;
+    assert_eq!(
+        stdout,
+        "program p
+    integer :: i ! counter
+    do i = 1, 3
+        print *, i
+    end do
+end program p
+"
+    );
+    Ok(())
+}
+
+#[test]
+fn format_preview_disabled_in_config_file() -> anyhow::Result<()> {
+    // `format.preview` takes precedence over `check.preview`
+    let config = "
+[check]
+preview = true
+[format]
+preview = false
+";
+    let stdout = format_with_config(config, &[])?;
+    assert_eq!(
+        stdout,
+        "Format mode is currently in preview; nothing to do\n"
+    );
+
+    // But the command line takes precedence over the config file
+    let stdout = format_with_config(config, &["--preview"])?;
+    assert_eq!(stdout, FORMATTED);
+    Ok(())
+}
+
+#[test]
+fn format_falls_back_to_check_settings() -> anyhow::Result<()> {
+    let config = "
+[check]
+preview = true
+indent-width = 3
+";
+    let stdout = format_with_config(config, &[])?;
+    assert_eq!(
+        stdout,
+        "program p
+   integer :: i ! counter
+   do i = 1, 3
+      print *, i
+   end do
+end program p
+"
+    );
+    Ok(())
+}
+
+#[test]
+fn format_command_line_overrides_config_file() -> anyhow::Result<()> {
+    let config = "
+[format]
+preview = true
+indent-width = 4
+";
+    let stdout = format_with_config(config, &["--indent", "2"])?;
+    assert_eq!(stdout, FORMATTED);
+    Ok(())
+}
+
+#[test]
+fn format_line_length_from_config_file() -> anyhow::Result<()> {
+    let config = "
+[check]
+line-length = 132
+[format]
+preview = true
+line-length = 30
+";
+    let tempdir = TempDir::new()?;
+    fs::write(tempdir.path().join("fortitude.toml"), config)?;
+    fs::write(
+        tempdir.path().join("test.f90"),
+        "program p
+print *, 'first', 'second', 'third', 'fourth'
+end program p
+",
+    )?;
+    let output = Command::cargo_bin(BIN_NAME)?
+        .current_dir(tempdir.path())
+        .args(["format", "--i-understand-the-risks", "test.f90"])
+        .output()?;
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout)?;
+    assert!(stdout.contains("'fourth'"), "{stdout}");
+    assert!(
+        stdout.lines().all(|line| line.len() <= 30),
+        "lines longer than 30 characters:\n{stdout}"
+    );
+    Ok(())
+}
+
+// Indented by 4, with lines 4 to 6 out of place
+const RANGE_SOURCE: &str = "program p
+    integer :: i
+    do i = 1, 3
+print *,i
+      end do
+    x=1
+end program p
+";
+
+#[test]
+fn format_range_to_stdout() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    let test_file = tempdir.path().join("test.f90");
+    fs::write(&test_file, RANGE_SOURCE)?;
+
+    // Only line 4 is formatted, and indented by 4 like the code before it
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--range", "4", "test.f90"]), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    program p
+        integer :: i
+        do i = 1, 3
+            print *, i
+          end do
+        x=1
+    end program p
+
+    ----- stderr -----
+    ");
+    Ok(())
+}
+
+#[test]
+fn format_range_in_place() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    let test_file = tempdir.path().join("test.f90");
+    fs::write(&test_file, RANGE_SOURCE)?;
+
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--in-place", "--range", "4-6", "test.f90"]), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    1 file reformatted, 0 files left unchanged
+
+    ----- stderr -----
+    ");
+    assert_eq!(
+        fs::read_to_string(&test_file)?,
+        "program p
+    integer :: i
+    do i = 1, 3
+        print *, i
+    end do
+    x = 1
+end program p
+"
+    );
+    Ok(())
+}
+
+#[test]
+fn format_several_ranges() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    let test_file = tempdir.path().join("test.f90");
+    fs::write(&test_file, RANGE_SOURCE)?;
+
+    // Lines 4 and 6 are formatted, but not line 5 between them, so line 6 is
+    // indented like line 5
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--range", "6", "--range", "4", "test.f90"]), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    program p
+        integer :: i
+        do i = 1, 3
+            print *, i
+          end do
+          x = 1
+    end program p
+
+    ----- stderr -----
+    ");
+    Ok(())
+}
+
+#[test]
+fn format_range_needs_single_file() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    fs::write(tempdir.path().join("a.f90"), RANGE_SOURCE)?;
+    fs::write(tempdir.path().join("b.f90"), RANGE_SOURCE)?;
+
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--range", "1-2", "a.f90", "b.f90"]), @r"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+
+    ----- stderr -----
+    fortitude failed
+    Error: --range can only be used when formatting a single file
+    ");
+    Ok(())
+}
+
+#[test]
+fn format_range_invalid() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--range", "3-2", "a.f90"]), @r"
+    success: false
+    exit_code: 2
+    ----- stdout -----
+
+    ----- stderr -----
+    error: invalid value '3-2' for '--range <START-END>': the range ends (line 2) before it starts (line 3)
+
+    For more information, try '--help'.
+    ");
+    Ok(())
+}
+
+#[test]
+fn format_in_place_keeps_crlf() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    let test_file = tempdir.path().join("test.f90");
+    fs::write(&test_file, UNFORMATTED.replace('\n', "\r\n"))?;
+
+    format_command(&tempdir)?
+        .args(["--in-place", "test.f90"])
+        .assert()
+        .success();
+    assert_eq!(
+        fs::read_to_string(&test_file)?,
+        FORMATTED.replace('\n', "\r\n")
+    );
+    Ok(())
+}
+
+#[test]
+fn format_stdin() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    assert_cmd_snapshot!(format_command(&tempdir)?.arg("-").pass_stdin(UNFORMATTED), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    program p
+      integer :: i ! counter
+      do i = 1, 3
+        print *, i
+      end do
+    end program p
+
+    ----- stderr -----
+    ");
+    Ok(())
+}
+
+#[test]
+fn format_stdin_range() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--range", "4", "-"]).pass_stdin(RANGE_SOURCE), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    program p
+        integer :: i
+        do i = 1, 3
+            print *, i
+          end do
+        x=1
+    end program p
+
+    ----- stderr -----
+    ");
+    Ok(())
+}
+
+#[test]
+fn format_stdin_filename_finds_config() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    let subdir = tempdir.path().join("sub");
+    fs::create_dir(&subdir)?;
+    fs::write(
+        subdir.join("fortitude.toml"),
+        "[format]\nindent-width = 4\n",
+    )?;
+
+    // Indented by 4, as configured next to the named file, which needn't exist
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--stdin-filename", "sub/test.f90"]).pass_stdin(UNFORMATTED), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    program p
+        integer :: i ! counter
+        do i = 1, 3
+            print *, i
+        end do
+    end program p
+
+    ----- stderr -----
+    ");
+    Ok(())
+}
+
+#[test]
+fn format_stdin_not_in_place() -> anyhow::Result<()> {
+    let tempdir = TempDir::new()?;
+    assert_cmd_snapshot!(format_command(&tempdir)?.args(["--in-place", "-"]).pass_stdin(UNFORMATTED), @r"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+
+    ----- stderr -----
+    fortitude failed
+    Error: --in-place can't be used when formatting standard input
+    ");
+    Ok(())
+}

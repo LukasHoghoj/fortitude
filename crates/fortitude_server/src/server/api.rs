@@ -61,6 +61,12 @@ pub(super) fn request(req: server::Request) -> Task {
             background_request_task::<request::DocumentDiagnostic>(req, BackgroundSchedule::Worker)
         }
         request::ExecuteCommand::METHOD => sync_request_task::<request::ExecuteCommand>(req),
+        request::Format::METHOD => {
+            background_request_task::<request::Format>(req, BackgroundSchedule::Worker)
+        }
+        request::FormatRange::METHOD => {
+            background_request_task::<request::FormatRange>(req, BackgroundSchedule::Worker)
+        }
         request::Hover::METHOD => {
             background_request_task::<request::Hover>(req, BackgroundSchedule::Worker)
         }

@@ -49,6 +49,80 @@ pub struct Options {
 
     #[option_group]
     pub check: Option<CheckOptions>,
+
+    #[option_group]
+    pub format: Option<FormatOptions>,
+}
+
+/// Configures how Fortitude formats your code.
+///
+/// The formatter is experimental and only runs in preview mode.
+#[derive(Clone, Debug, PartialEq, Eq, Default, OptionsMetadata, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct FormatOptions {
+    /// Whether to enable preview mode for the formatter. The formatter currently does
+    /// nothing unless preview mode is enabled.
+    ///
+    /// Defaults to the value of [`check.preview`](#check_preview).
+    #[option(
+        default = "false",
+        value_type = "bool",
+        example = r#"
+            # Enable the (experimental) formatter.
+            preview = true
+        "#
+    )]
+    pub preview: Option<bool>,
+
+    /// The line length the formatter tries to keep lines within.
+    ///
+    /// Defaults to the value of [`check.line-length`](#check_line-length).
+    #[option(
+        default = "100",
+        value_type = "int",
+        example = r#"
+            # Format lines to be at most 132 characters long.
+            line-length = 132
+        "#
+    )]
+    pub line_length: Option<usize>,
+
+    /// The number of spaces per level of indentation, also used for continuation lines.
+    ///
+    /// Defaults to the value of [`check.indent-width`](#check_indent-width) if that is
+    /// set, and to 2 otherwise.
+    #[option(default = "2", value_type = "int", example = "indent-width = 4")]
+    pub indent_width: Option<IndentWidth>,
+
+    /// Whether to indent comment lines starting in the first column like the code
+    /// around them. By default, they stay in the first column.
+    #[option(
+        default = "false",
+        value_type = "bool",
+        example = "indent-col0-comments = true"
+    )]
+    pub indent_col0_comments: Option<bool>,
+
+    /// Whether to wrap comment lines exceeding the line length at whitespace,
+    /// repeating the comment marker. Compiler and OpenMP/OpenACC directives (`!$omp`,
+    /// `!$`, `!DIR$`, ...) and `allow` comments are never wrapped.
+    #[option(
+        default = "false",
+        value_type = "bool",
+        example = "split-comments = true"
+    )]
+    pub split_comments: Option<bool>,
+
+    /// Whether to split string literals exceeding the line length using character
+    /// context continuation (`"abc &` followed by `&def"`), which leaves the value of
+    /// the string unchanged. Continued strings are joined and split again where
+    /// necessary.
+    #[option(
+        default = "false",
+        value_type = "bool",
+        example = "split-strings = true"
+    )]
+    pub split_strings: Option<bool>,
 }
 
 /// Configures how Fortitude checks your code.

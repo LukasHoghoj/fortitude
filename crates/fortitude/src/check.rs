@@ -35,7 +35,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 /// Returns true if the command should read from standard input.
-fn is_stdin(files: &[PathBuf], stdin_filename: Option<&Path>) -> bool {
+pub(crate) fn is_stdin(files: &[PathBuf], stdin_filename: Option<&Path>) -> bool {
     // If the user provided a `--stdin-filename`, always read from standard input.
     if stdin_filename.is_some() {
         if let Some(file) = files.iter().find(|file| file.as_path() != Path::new("-")) {
@@ -55,7 +55,7 @@ fn is_stdin(files: &[PathBuf], stdin_filename: Option<&Path>) -> bool {
 }
 
 /// Returns the default set of files if none are provided, otherwise returns provided files.
-fn resolve_default_files(files: Vec<PathBuf>, is_stdin: bool) -> Vec<PathBuf> {
+pub(crate) fn resolve_default_files(files: Vec<PathBuf>, is_stdin: bool) -> Vec<PathBuf> {
     if files.is_empty() {
         if is_stdin {
             vec![Path::new("-").to_path_buf()]

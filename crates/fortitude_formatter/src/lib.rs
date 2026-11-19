@@ -2,13 +2,16 @@ mod comments;
 mod continuation;
 mod errors;
 mod preprocessor;
+mod range;
 mod split;
 
 use std::{
     cmp::Ordering,
     collections::HashMap,
     io::Write,
-    path::{Path, PathBuf},
+    ops::Range,
+    path::Path,
+    sync::{Arc, LazyLock, Mutex, PoisonError},
 };
 
 use anyhow::Result;
@@ -23,6 +26,7 @@ use continuation::{
 use errors::{mark_error_lines, unmark_error_lines};
 use fortitude_linter::settings::FormatSettings;
 use preprocessor::format_with_directives;
+pub use range::{LineEdit, apply_line_edits, format_lines, format_text};
 use split::{split_at_blanks, split_long_comments, split_long_strings};
 use topiary_core::{FormatterError, Language, Operation, TopiaryQuery, formatter};
 use tree_sitter::{Point, Query, QueryCursor, StreamingIterator, Tree, TreeCursor};
@@ -47,6 +51,19 @@ pub fn create_formatter(indent_width: usize) -> Language {
     }
 }
 
+/// The formatter indenting by `indent_width` spaces per level, created only once
+/// per indent width, as building the topiary query is relatively slow
+pub fn cached_formatter(indent_width: usize) -> Arc<Language> {
+    static FORMATTERS: LazyLock<Mutex<HashMap<usize, Arc<Language>>>> =
+        LazyLock::new(Mutex::default);
+
+    let mut formatters = FORMATTERS.lock().unwrap_or_else(PoisonError::into_inner);
+    formatters
+        .entry(indent_width)
+        .or_insert_with(|| Arc::new(create_formatter(indent_width)))
+        .clone()
+}
+
 /// Number of spaces per level of indentation of the formatter
 fn indent_width(language: &Language) -> usize {
     language.indent.as_ref().map_or(2, String::len)
@@ -61,32 +78,49 @@ fn indent_width(language: &Language) -> usize {
 //      - Implement TextProvider for Vec<String>?
 //      - Reuse parse / parse tree
 
-/// Format an individual file, writing the result to `output`
-pub fn format_file(
-    file: PathBuf,
+/// Format `source`, or only the given ranges of `lines` of it (numbered from
+/// 0), keeping its line endings
+pub fn format_text_or_lines(
+    source: &str,
     language: &Language,
     settings: &FormatSettings,
+    lines: Option<&[Range<usize>]>,
+) -> Result<String, FormatterError> {
+    match lines {
+        Some(lines) => {
+            let edits = format_lines(source, language, settings, lines)?;
+            Ok(apply_line_edits(source, &edits))
+        }
+        None => format_text(source, language, settings),
+    }
+}
+
+/// Format an individual file, or only the given ranges of `lines` of it
+/// (numbered from 0), writing the result to `output`
+pub fn format_file(
+    file: &Path,
+    language: &Language,
+    settings: &FormatSettings,
+    lines: Option<&[Range<usize>]>,
     output: &mut impl Write,
 ) -> Result<(), FormatterError> {
-    let source = std::fs::read_to_string(&file)?;
-    let lines = format_source(&source, language, settings)?;
-
-    writeln!(output, "{}", lines.join("\n"))?;
-
+    let source = std::fs::read_to_string(file)?;
+    let formatted = format_text_or_lines(&source, language, settings, lines)?;
+    output.write_all(formatted.as_bytes())?;
     Ok(())
 }
 
-/// Format an individual file in place. The file is only written if
-/// formatting changes it. Returns whether the file was changed.
+/// Format an individual file in place, or only the given ranges of `lines` of
+/// it (numbered from 0). The file is only written if formatting changes it.
+/// Returns whether the file was changed.
 pub fn format_file_in_place(
     file: &Path,
     language: &Language,
     settings: &FormatSettings,
+    lines: Option<&[Range<usize>]>,
 ) -> Result<bool, FormatterError> {
     let source = std::fs::read_to_string(file)?;
-    let mut formatted = format_source(&source, language, settings)?.join("\n");
-    formatted.push('\n');
-
+    let formatted = format_text_or_lines(&source, language, settings, lines)?;
     if formatted == source {
         return Ok(false);
     }
@@ -211,7 +245,7 @@ fn break_lines(lines: &mut Vec<String>, line_length: usize, indent: usize) -> us
     lines_changed
 }
 
-fn get_indent(line: &String) -> usize {
+fn get_indent(line: &str) -> usize {
     line.find(|c: char| !c.is_whitespace()).unwrap_or(0)
 }
 
@@ -226,7 +260,7 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
         .map(|(i, _)| i)
         .collect();
 
-    if long_lines.len() == 0 {
+    if long_lines.is_empty() {
         return 0;
     }
 
@@ -237,10 +271,10 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
     let tree = parser
         .parse_with_options(
             &mut |_byte: usize, position: Point| -> &[u8] {
-                let row = position.row as usize;
-                let column = position.column as usize;
+                let row = position.row;
+                let column = position.column;
                 if row < lines.len() {
-                    if column < lines[row].as_bytes().len() {
+                    if column < lines[row].len() {
                         &lines[row].as_bytes()[column..]
                     } else {
                         b"\n"
@@ -284,7 +318,7 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
             let range = &qc.node.range();
             if qc.index == i_root {
                 assert!(
-                    break_node_id.replace(qc.node.id()) == None,
+                    break_node_id.replace(qc.node.id()).is_none(),
                     "Should only be one root node"
                 );
                 break_ranges.insert(qc.node.id(), qc.node.byte_range());
@@ -303,7 +337,7 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
             // Can there be more than on match per capture?
         });
 
-        assert!(breaks.len() > 0, "There should be some breaks found");
+        assert!(!breaks.is_empty(), "There should be some breaks found");
         let break_node_id = break_node_id.expect("There should be some breaks found");
 
         match possible_breaks.get_mut(&break_node_id) {
@@ -311,7 +345,7 @@ fn break_lines_once(lines: &mut Vec<String>, line_length: usize, indent: usize) 
                 possible_breaks.insert(
                     break_node_id,
                     BreakCollection {
-                        breaks: breaks,
+                        breaks,
                         pattern_id: x.pattern_index,
                         broken,
                     },
@@ -441,7 +475,7 @@ fn get_breaks_dfs(
     breaks
 }
 
-fn node_contains_long_line(node: tree_sitter::Node<'_>, long_lines: &Vec<usize>) -> bool {
+fn node_contains_long_line(node: tree_sitter::Node<'_>, long_lines: &[usize]) -> bool {
     let a = node.start_position().row;
     let b = node.end_position().row;
 
@@ -526,7 +560,7 @@ mod test {
 
         let mut buf = Vec::new();
         let settings = FormatSettings::default();
-        format_file(path, &TEST_FORMATTER, &settings, &mut buf)?;
+        format_file(&path, &TEST_FORMATTER, &settings, None, &mut buf)?;
         apply_common_filters!();
 
         let string = String::from_utf8(buf)?;
@@ -546,7 +580,7 @@ mod test {
             line_length: 20,
             ..FormatSettings::default()
         };
-        format_file(path, &TEST_FORMATTER, &settings, &mut buf)?;
+        format_file(&path, &TEST_FORMATTER, &settings, None, &mut buf)?;
         apply_common_filters!();
 
         let string = String::from_utf8(buf)?;

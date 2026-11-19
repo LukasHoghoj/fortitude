@@ -184,6 +184,8 @@ impl Server {
                 },
             }),
 
+            document_formatting_provider: Some(types::OneOf::Left(true)),
+            document_range_formatting_provider: Some(types::OneOf::Left(true)),
             hover_provider: Some(types::HoverProviderCapability::Simple(true)),
             text_document_sync: Some(TextDocumentSyncCapability::Options(
                 TextDocumentSyncOptions {

@@ -31,7 +31,7 @@ pub(crate) fn scan_line(line: &str, in_string: Option<char>) -> LineScan {
                 return LineScan {
                     code_end: pos,
                     open_string: None,
-                }
+                };
             }
             None => {}
         }
