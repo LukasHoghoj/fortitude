@@ -112,6 +112,7 @@ pub fn code_to_rule(category: Category, code: &str) -> Option<(RuleGroup, Rule)>
         // error
         (Error, "000") => (RuleGroup::Stable, None, Default, error::ioerror::IoError),
         (Error, "001") => (RuleGroup::Stable, Ast, Default, error::syntax_error::SyntaxError),
+        (Error, "002") => (RuleGroup::Preview, None, Default, error::uncommented_preprocessor_label::UncommentedPreprocessorLabel),
         (Error, "011") => (RuleGroup::Stable, None, Default, error::invalid_character::InvalidCharacter),
 
         // correctness
@@ -209,6 +210,7 @@ pub fn code_to_rule(category: Category, code: &str) -> Option<(RuleGroup, Rule)>
         (Style, "301") => (RuleGroup::Preview, Ast, Optional, style::superfluous_while_true::SuperfluousWhileTrue),
         (Style, "311") => (RuleGroup::Preview, Ast, Default, style::keywords::KeywordReuse),
         (Style, "321") => (RuleGroup::Preview, Ast, Optional, style::whole_array_indexing::WholeArrayIndexing),
+        (Style, "331") => (RuleGroup::Preview, Ast, Default, style::mismatched_endif_comment::MismatchedEndifComment),
         (Style, "901") => (RuleGroup::Stable, Ast, Optional, style::complexity::TooComplex),
         (Style, "902") => (RuleGroup::Stable, Ast, Optional, style::complexity::TooManyArguments),
 
