@@ -103,6 +103,14 @@ pub struct FormatOptions {
     )]
     pub indent_col0_comments: Option<bool>,
 
+    /// Whether to put statement labels in the first column. The statement after a
+    /// label stays where it is indented, so that with an indentation of six columns,
+    /// `8888 continue` is formatted as `8888  continue`. A label at least as long as
+    /// the indentation is followed by a single space. By default, labels are indented
+    /// like the code around them.
+    #[option(default = "false", value_type = "bool", example = "col0-labels = true")]
+    pub col0_labels: Option<bool>,
+
     /// Whether to wrap comment lines exceeding the line length at whitespace,
     /// repeating the comment marker. Compiler and OpenMP/OpenACC directives (`!$omp`,
     /// `!$`, `!DIR$`, ...) and `allow` comments are never wrapped.

@@ -1,0 +1,18 @@
+program unary
+  implicit none
+  integer :: a, b
+  real :: x(3), y
+  integer, parameter :: n = -1
+  a = -1
+  a = - 1
+  b = +a
+  b = -a + 1
+  b = a - -1
+  b = a*(-b)
+  b = a**(-2)
+  y = -x(1)*2
+  x = [ -1.0, +2.0, - 3.0 ]
+  call foo(-a, b = -1)
+  if (-a > -b) a = -b
+  y = .not. -a > 0
+end program unary

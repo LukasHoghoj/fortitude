@@ -1,0 +1,16 @@
+---
+source: crates/fortitude_formatter/src/lib.rs
+expression: formatted
+---
+program assignment_lhs
+  some_long_array_name(first_index_variable, second_index_variable) = &
+    another_function(argument_one, argument_two)
+  some_derived_type%component_one%component_two%array(index_one) = &
+    argument_one + argument_two + argument_three
+  some_pointer_variable%component_one%component_two => &
+    some_target_variable%component_one%component_two
+  short_name = a_function_with_a_long_name( &
+    argument_one, &
+    argument_two, &
+    argument_three)
+end program assignment_lhs

@@ -59,10 +59,8 @@ contains
     call a_long_subroutine_name( &
       first_argument = first_argument, &
       second = second_argument)
-    an_allocatable_array_variable = [ &
-      first_argument, &
-      second_argument, &
-      third_argument]
+    an_allocatable_array_variable = &
+      [first_argument, second_argument, third_argument]
     result_value = a_type_variable% &
       first_component% &
       second_component% &

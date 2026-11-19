@@ -213,7 +213,7 @@ impl fmt::Display for CheckSettings {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FormatSettings {
     pub line_length: usize,
     pub preview: PreviewMode,
@@ -221,6 +221,9 @@ pub struct FormatSettings {
     pub indent_width: usize,
     /// Indent comment lines starting in the first column like code
     pub indent_col0_comments: bool,
+    /// Put statement labels in the first column, keeping the statement after
+    /// them where it is indented
+    pub col0_labels: bool,
     /// Wrap comment lines exceeding the line length
     pub split_comments: bool,
     /// Split string literals to keep lines within the line length
@@ -238,6 +241,7 @@ impl fmt::Display for FormatSettings {
                 self.preview,
                 self.indent_width,
                 self.indent_col0_comments,
+                self.col0_labels,
                 self.split_comments,
                 self.split_strings,
             ]
@@ -254,6 +258,7 @@ impl Default for FormatSettings {
             preview: PreviewMode::default(),
             indent_width: 2,
             indent_col0_comments: false,
+            col0_labels: false,
             split_comments: false,
             split_strings: false,
         }

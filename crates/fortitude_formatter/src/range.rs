@@ -14,15 +14,26 @@
 //! doesn't leave it inconsistent. Their indentation is that of the last
 //! statement before their range of lines, plus the change in indentation the
 //! formatter makes from that statement, in the file's own indentation width.
+//!
+//! So that large files are formatted quickly, only the procedures or program
+//! units containing the lines are formatted where possible, rather than the
+//! whole file, with the line length reduced by their indentation. Procedures
+//! following a `contains` are formatted within a module, so that they are
+//! indented as in the file. If the lines start on the first line of a
+//! procedure, the one before it is formatted as well, to indent them like the
+//! code before them.
 
 use std::ops::Range;
 
 use similar::{Algorithm, DiffOp, capture_diff_slices};
 use topiary_core::{FormatterError, Language};
+use tree_sitter::{Node, Point};
 
 use fortitude_linter::settings::FormatSettings;
 
 use crate::format_source;
+use crate::labels::{label_to_column0, statement_indentation};
+use crate::preprocessor::{Directive, directive_kind};
 
 /// Format `source`, keeping its line endings. Unless it is empty, the result
 /// ends with a line ending.
@@ -69,13 +80,256 @@ pub fn format_lines(
     settings: &FormatSettings,
     lines: &[Range<usize>],
 ) -> Result<Vec<LineEdit>, FormatterError> {
-    let formatted = format_text(source, language, settings)?;
-    Ok(line_edits(
-        source,
-        &formatted,
-        lines,
-        crate::indent_width(language),
-    ))
+    let old: Vec<&str> = source.split_inclusive('\n').collect();
+    let ranges = widen_and_merge(&old, lines);
+    if ranges.is_empty() {
+        return Ok(Vec::new());
+    }
+    let indent_width = crate::indent_width(language);
+    let col0_labels = settings.col0_labels;
+    let source_width =
+        source_indent_width(&old, &statement_starts(&old), col0_labels).unwrap_or(indent_width);
+
+    let widths = ReindentWidths {
+        source: source_width,
+        formatter: indent_width,
+        col0_labels,
+    };
+    // Labels are moved to the first column when the lines are reindented, as
+    // the indentation of the statement is needed for that
+    let settings = &FormatSettings {
+        col0_labels: false,
+        ..settings.clone()
+    };
+    let whole_file = || -> Result<Vec<LineEdit>, FormatterError> {
+        let formatted = format_text(source, language, settings)?;
+        Ok(line_edits(source, &formatted, &ranges, widths, false))
+    };
+    let Some(slices) = slices(source, &old, &ranges) else {
+        return whole_file();
+    };
+
+    let line_offsets = line_offsets(&old);
+    let mut edits = Vec::new();
+    for slice in slices {
+        let text = old[slice.lines.clone()].concat();
+        let Some(formatted) = format_slice(&text, slice.wrap, language, settings, widths)? else {
+            return whole_file();
+        };
+        let slice_ranges: Vec<_> = slice
+            .ranges
+            .iter()
+            .map(|range| range.start - slice.lines.start..range.end - slice.lines.start)
+            .collect();
+        let (first, offset) = (slice.lines.start, line_offsets[slice.lines.start]);
+        edits.extend(
+            line_edits(&text, &formatted, &slice_ranges, widths, true)
+                .into_iter()
+                .map(|edit| LineEdit {
+                    lines: edit.lines.start + first..edit.lines.end + first,
+                    source_range: edit.source_range.start + offset..edit.source_range.end + offset,
+                    new_text: edit.new_text,
+                }),
+        );
+    }
+    Ok(edits)
+}
+
+/// The name of the module procedures are formatted within
+const WRAPPER: &str = "fortitude_format_slice";
+
+/// Format `text`, the lines of a slice, within a module if `wrap`. The line
+/// length is reduced by the indentation of the slice beyond that it is
+/// formatted at. `None` if the module isn't formatted as expected.
+fn format_slice(
+    text: &str,
+    wrap: bool,
+    language: &Language,
+    settings: &FormatSettings,
+    widths: ReindentWidths,
+) -> Result<Option<String>, FormatterError> {
+    let indent = indentation(text) * widths.formatter / widths.source.max(1);
+    let formatted_indent = if wrap { widths.formatter } else { 0 };
+    let slice_settings = FormatSettings {
+        line_length: settings
+            .line_length
+            .saturating_sub(indent.saturating_sub(formatted_indent)),
+        ..settings.clone()
+    };
+    if !wrap {
+        return format_text(text, language, &slice_settings).map(Some);
+    }
+
+    let newline = line_ending(text);
+    let header = [format!("module {WRAPPER}"), "contains".to_string()];
+    let footer = format!("end module {WRAPPER}");
+    let mut wrapped = header.join(newline);
+    wrapped.push_str(newline);
+    wrapped.push_str(text);
+    if !text.ends_with('\n') {
+        wrapped.push_str(newline);
+    }
+    wrapped.push_str(&footer);
+    wrapped.push_str(newline);
+
+    let formatted = format_text(&wrapped, language, &slice_settings)?;
+    let lines: Vec<&str> = formatted.split_inclusive('\n').collect();
+    let n = lines.len();
+    let unchanged = n >= 3
+        && lines[0].trim_end() == header[0]
+        && lines[1].trim_end() == header[1]
+        && lines[n - 1].trim_end() == footer;
+    Ok(unchanged.then(|| lines[2..n - 1].concat()))
+}
+
+/// Kinds of nodes containing procedures or program units
+const CONTAINERS: &[&str] = &["translation_unit", "internal_procedures"];
+
+/// Kinds of nodes that can be formatted on their own
+const UNITS: &[&str] = &[
+    "program",
+    "module",
+    "submodule",
+    "subroutine",
+    "function",
+    "block_data",
+    "comment",
+];
+
+/// Lines of the source to format on their own
+#[derive(Debug)]
+struct Slice {
+    lines: Range<usize>,
+    /// The ranges of lines to format within the slice
+    ranges: Vec<Range<usize>>,
+    /// The slice consists of procedures following a `contains`, which are
+    /// formatted within a module
+    wrap: bool,
+}
+
+/// The parts of the source to format for the (widened and merged) `ranges` of
+/// lines: consecutive procedures or program units containing them. `None` if
+/// the whole file is to be formatted.
+fn slices(source: &str, lines: &[&str], ranges: &[Range<usize>]) -> Option<Vec<Slice>> {
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&tree_sitter_fortran::LANGUAGE.into())
+        .expect("Error loading Fortran parser");
+    let tree = parser.parse(source, None)?;
+
+    // The depth of conditional directives at the start of each line, and
+    // whether it is a directive
+    let mut depth = 0usize;
+    let mut depths = Vec::with_capacity(lines.len());
+    let mut directives = Vec::with_capacity(lines.len());
+    for line in lines {
+        depths.push(depth);
+        let kind = directive_kind(line);
+        directives.push(kind.is_some());
+        match kind {
+            Some(Directive::If) => depth += 1,
+            Some(Directive::EndIf) => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+
+    let mut slices: Vec<Slice> = Vec::new();
+    for range in ranges {
+        let (lines, wrap) = slice_for(tree.root_node(), range)?;
+        // Directives are handled with the whole file
+        if depths[lines.start] > 0 || directives[lines.clone()].iter().any(|&d| d) {
+            return None;
+        }
+        match slices.last_mut() {
+            Some(last) if lines.start < last.lines.end => {
+                // Slices overlap if one contains the other
+                if lines.end > last.lines.end {
+                    if lines.start > last.lines.start {
+                        return None;
+                    }
+                    last.lines = lines;
+                    last.wrap = wrap;
+                }
+                last.ranges.push(range.clone());
+            }
+            _ => slices.push(Slice {
+                lines,
+                ranges: vec![range.clone()],
+                wrap,
+            }),
+        }
+    }
+    Some(slices)
+}
+
+/// The rows of `node`, excluding a final row it ends at the start of
+fn rows(node: Node) -> Range<usize> {
+    let (start, end) = (node.start_position(), node.end_position());
+    let last = if end.column == 0 && end.row > start.row {
+        end.row - 1
+    } else {
+        end.row
+    };
+    start.row..last + 1
+}
+
+/// The lines to format for `range`: the consecutive procedures or program
+/// units containing it, and the one before them if `range` starts on their
+/// first line. Also whether they follow a `contains`.
+fn slice_for(root: Node, range: &Range<usize>) -> Option<(Range<usize>, bool)> {
+    let last = range.end.checked_sub(1)?;
+    let mut node =
+        root.descendant_for_point_range(Point::new(range.start, 0), Point::new(last, usize::MAX))?;
+    loop {
+        if CONTAINERS.contains(&node.kind())
+            && let Some(slice) = units_slice(node, range)
+        {
+            return Some((slice, node.kind() == "internal_procedures"));
+        }
+        node = node.parent()?;
+    }
+}
+
+/// The lines of the children of `container` containing `range`, if they are
+/// procedures or program units that can be formatted on their own
+fn units_slice(container: Node, range: &Range<usize>) -> Option<Range<usize>> {
+    let mut cursor = container.walk();
+    let children: Vec<Node> = container.named_children(&mut cursor).collect();
+    let overlaps = |child: &Node| {
+        let rows = rows(*child);
+        rows.start < range.end && range.start < rows.end
+    };
+    let first = children.iter().position(overlaps)?;
+    let last = children.iter().rposition(overlaps)?;
+    let is_unit = |child: &Node| UNITS.contains(&child.kind()) && !child.has_error();
+    if !children[first..=last].iter().all(is_unit) {
+        return None;
+    }
+    let mut slice = rows(children[first]).start..rows(children[last]).end;
+    if range.start < slice.start || slice.end < range.end {
+        return None;
+    }
+    // Lines are indented like the code before them
+    if range.start == slice.start {
+        let previous = children[..first]
+            .iter()
+            .rposition(|child| child.kind() != "comment")?;
+        if !is_unit(&children[previous]) {
+            return None;
+        }
+        slice.start = rows(children[previous]).start;
+    }
+    Some(slice)
+}
+
+/// The byte offset of the start of each of `lines`, and of their end
+fn line_offsets(lines: &[&str]) -> Vec<usize> {
+    std::iter::once(0)
+        .chain(lines.iter().scan(0, |offset, line| {
+            *offset += line.len();
+            Some(*offset)
+        }))
+        .collect()
 }
 
 /// Apply `edits`, as returned by [`format_lines`], to `source`
@@ -91,14 +345,25 @@ pub fn apply_line_edits(source: &str, edits: &[LineEdit]) -> String {
     result
 }
 
+/// The indentation widths of the source and the formatter
+#[derive(Clone, Copy, Debug)]
+struct ReindentWidths {
+    source: usize,
+    formatter: usize,
+    /// Labels are put in the first column (`col0-labels`)
+    col0_labels: bool,
+}
+
 /// The edits turning `source` into `formatted` that touch the statements on
 /// the given ranges of `lines` of `source`, indented like the code before
-/// them. `indent_width` is the formatter's indentation width.
+/// them. If `is_slice`, `source` is part of a file, starting with a statement
+/// that lines are indented relative to if there is no other before them.
 fn line_edits(
     source: &str,
     formatted: &str,
     lines: &[Range<usize>],
-    indent_width: usize,
+    widths: ReindentWidths,
+    is_slice: bool,
 ) -> Vec<LineEdit> {
     let old: Vec<&str> = source.split_inclusive('\n').collect();
     let new: Vec<&str> = formatted.split_inclusive('\n').collect();
@@ -111,21 +376,20 @@ fn line_edits(
     let new_keys: Vec<String> = new.iter().map(|line| without_whitespace(line)).collect();
     let ops = capture_diff_slices(Algorithm::Patience, &old_keys, &new_keys);
 
-    let reindent = Reindent::new(&old, &new, &ops, indent_width);
-    // Each range is indented like the code before it
+    let reindent = Reindent::new(&old, &new, &ops, widths);
+    // Each range is indented like the code before it, or the start of the
+    // slice
+    let slice_anchor = is_slice
+        .then(|| Some((indentation(old.first()?), indentation(new.first()?))))
+        .flatten();
     let anchors: Vec<_> = ranges
         .iter()
-        .map(|range| reindent.anchor(range.start))
+        .map(|range| reindent.anchor(range.start).or(slice_anchor))
         .collect();
     // The index of the first range ending after `line`, if any
     let first_range_after = |line: usize| ranges.partition_point(|range| range.end <= line);
 
-    let line_offsets: Vec<usize> = std::iter::once(0)
-        .chain(old.iter().scan(0, |offset, line| {
-            *offset += line.len();
-            Some(*offset)
-        }))
-        .collect();
+    let line_offsets = line_offsets(&old);
     let edit = |old_lines: Range<usize>, new_lines: Range<usize>, anchor| LineEdit {
         source_range: line_offsets[old_lines.start]..line_offsets[old_lines.end],
         new_text: new_lines.map(|line| reindent.line(line, anchor)).collect(),
@@ -201,10 +465,12 @@ struct Reindent<'a> {
     source_width: usize,
     /// The indentation width of the formatter
     formatter_width: usize,
+    /// Labels are put in the first column
+    col0_labels: bool,
 }
 
 impl<'a> Reindent<'a> {
-    fn new(old: &'a [&'a str], new: &'a [&'a str], ops: &[DiffOp], formatter_width: usize) -> Self {
+    fn new(old: &'a [&'a str], new: &'a [&'a str], ops: &[DiffOp], widths: ReindentWidths) -> Self {
         // The formatted line of each source line whose text is unchanged
         let mut formatted_line = vec![None; old.len()];
         for op in ops {
@@ -237,9 +503,10 @@ impl<'a> Reindent<'a> {
             formatted_line,
             in_string: new_continuation.iter().map(|c| c.in_string).collect(),
             statement_start,
-            source_width: source_indent_width(old, &old_starts).unwrap_or(formatter_width),
+            source_width: widths.source,
             old_starts,
-            formatter_width: formatter_width.max(1),
+            formatter_width: widths.formatter.max(1),
+            col0_labels: widths.col0_labels,
         }
     }
 
@@ -248,8 +515,12 @@ impl<'a> Reindent<'a> {
     fn anchor(&self, start: usize) -> Anchor {
         (0..start.min(self.old.len())).rev().find_map(|line| {
             let new_line = self.formatted_line[line]?;
-            self.old_starts[line]
-                .then(|| (indentation(self.old[line]), indentation(self.new[new_line])))
+            self.old_starts[line].then(|| {
+                (
+                    self.source_indentation(self.old[line]),
+                    indentation(self.new[new_line]),
+                )
+            })
         })
     }
 
@@ -257,9 +528,24 @@ impl<'a> Reindent<'a> {
     /// `anchor`
     fn line(&self, line: usize, anchor: Anchor) -> String {
         let text = self.new[line];
-        match self.indent(line, anchor) {
+        let text = match self.indent(line, anchor) {
             Some(indent) => format!("{}{}", " ".repeat(indent), text.trim_start()),
             None => text.to_string(),
+        };
+        if self.col0_labels && self.statement_start[line] == line && !self.in_string[line] {
+            if let Some(moved) = label_to_column0(&text) {
+                return moved;
+            }
+        }
+        text
+    }
+
+    /// The indentation of the statement starting on the source line `line`
+    fn source_indentation(&self, line: &str) -> usize {
+        if self.col0_labels {
+            statement_indentation(line)
+        } else {
+            indentation(line)
         }
     }
 
@@ -319,11 +605,15 @@ fn statement_starts(lines: &[&str]) -> Vec<bool> {
 /// The indentation width used in the source: the most common increase in
 /// indentation from one statement to the next, the smallest if several are
 /// as common
-fn source_indent_width(lines: &[&str], starts: &[bool]) -> Option<usize> {
+fn source_indent_width(lines: &[&str], starts: &[bool], col0_labels: bool) -> Option<usize> {
     let mut counts = std::collections::BTreeMap::new();
     let mut previous = None;
     for (line, _) in lines.iter().zip(starts).filter(|(_, start)| **start) {
-        let indent = indentation(line);
+        let indent = if col0_labels {
+            statement_indentation(line)
+        } else {
+            indentation(line)
+        };
         if let Some(previous) = previous
             && indent > previous
         {
@@ -380,7 +670,7 @@ fn widen_to_statements(lines: &[&str], range: Range<usize>) -> Range<usize> {
 /// For each line, whether the statement on it continues on the next line. This
 /// is the case if the line ends with `&`, outside of comments, or if it is a
 /// comment or blank line within a continued statement.
-fn continued_lines(lines: &[&str]) -> Vec<bool> {
+pub(crate) fn continued_lines(lines: &[&str]) -> Vec<bool> {
     continuation(lines).iter().map(|c| c.continued).collect()
 }
 
@@ -457,7 +747,7 @@ fn continuation(lines: &[&str]) -> Vec<Continuation> {
 mod tests {
     use fortitude_linter::settings::{FormatSettings, PreviewMode};
 
-    use super::{apply_line_edits, continued_lines, format_lines, format_text};
+    use super::{apply_line_edits, continued_lines, format_lines, format_text, slices};
     use crate::cached_formatter;
 
     fn settings() -> FormatSettings {
@@ -487,6 +777,34 @@ end do
 x=1
 end program p
 ";
+
+    #[test]
+    fn puts_labels_in_column0() {
+        let source = "\
+subroutine s
+    do i = 1, 3
+        if (i > 1) goto 10
+10      continue
+        x =  1
+    end do
+end subroutine s
+";
+        let settings = FormatSettings {
+            col0_labels: true,
+            ..settings()
+        };
+        let format = |lines: std::ops::Range<usize>| {
+            let edits = format_lines(source, &cached_formatter(2), &settings, &[lines]).unwrap();
+            apply_line_edits(source, &edits)
+        };
+        // The label stays in the first column, and the statement keeps the
+        // indentation of the source
+        assert_eq!(format(2..4), source);
+        assert_eq!(format(3..5), source.replace("x =  1", "x = 1"));
+        let indented = source.replace("10      continue", "        10 continue");
+        let edits = format_lines(&indented, &cached_formatter(2), &settings, &[3..4]).unwrap();
+        assert_eq!(apply_line_edits(&indented, &edits), source);
+    }
 
     #[test]
     fn keeps_line_endings() {
@@ -792,5 +1110,80 @@ end module m
                 false, true, true, true, true, true, false, false, true, true, false
             ]
         );
+    }
+
+    const PROCEDURES: &str = "module m
+contains
+  subroutine a()
+    x = 1
+  end subroutine a
+
+  ! about b
+  subroutine b()
+    x = 2
+    y = 3
+  end subroutine b
+
+  subroutine c()
+    x = 4
+  end subroutine c
+end module m
+";
+
+    /// The lines and ranges of the slices formatted for `ranges` of `source`,
+    /// or `None` for the whole file
+    fn slice_lines(
+        source: &str,
+        ranges: &[std::ops::Range<usize>],
+    ) -> Option<Vec<(std::ops::Range<usize>, bool)>> {
+        let lines: Vec<&str> = source.split_inclusive('\n').collect();
+        let slices = slices(source, &lines, ranges)?;
+        Some(slices.into_iter().map(|s| (s.lines, s.wrap)).collect())
+    }
+
+    #[test]
+    fn formats_only_the_procedures_containing_the_lines() {
+        // Within 'b'
+        assert_eq!(slice_lines(PROCEDURES, &[8..9]), Some(vec![(7..11, true)]));
+        // From the first line of 'b', also 'a' before it
+        assert_eq!(slice_lines(PROCEDURES, &[7..9]), Some(vec![(2..11, true)]));
+        // Within 'b' and 'c'
+        assert_eq!(
+            slice_lines(PROCEDURES, &[8..9, 13..14]),
+            Some(vec![(7..11, true), (12..15, true)])
+        );
+        assert_eq!(slice_lines(PROCEDURES, &[9..14]), Some(vec![(7..15, true)]));
+        // Within the module, but not a procedure
+        assert_eq!(slice_lines(PROCEDURES, &[1..2]), Some(vec![(0..16, false)]));
+        // The module is the first program unit of the file
+        assert_eq!(slice_lines(PROCEDURES, &[0..1]), None);
+    }
+
+    #[test]
+    fn formats_directives_with_the_whole_file() {
+        let within = PROCEDURES.replace("    y = 3\n", "#ifdef Y\n    y = 3\n#endif\n");
+        assert_eq!(slice_lines(&within, &[8..9]), None);
+        let around = PROCEDURES.replace("  ! about b\n", "#ifdef B\n");
+        let around = around.replace("  subroutine c", "#endif\n  subroutine c");
+        assert_eq!(slice_lines(&around, &[13..14]), None);
+        assert_eq!(slice_lines(&around, &[14..15]), Some(vec![(13..16, true)]));
+    }
+
+    /// A procedure formatted on its own breaks lines like within the file
+    #[test]
+    fn procedure_keeps_line_length() {
+        let call = "    call long_subroutine_name(first_argument, second_argument, third_argument, fourth)\n";
+        let source = PROCEDURES.replace("    y = 3\n", call);
+        let settings = FormatSettings {
+            line_length: call.len() - 2,
+            ..settings()
+        };
+        assert_eq!(slice_lines(&source, &[9..10]), Some(vec![(7..11, true)]));
+
+        let language = cached_formatter(2);
+        let expected = format_text(&source, &language, &settings).unwrap();
+        let edits = format_lines(&source, &language, &settings, &[9..10]).unwrap();
+        assert_eq!(apply_line_edits(&source, &edits), expected);
+        assert!(expected.lines().count() > source.lines().count());
     }
 }

@@ -25,6 +25,7 @@
 ] @append_hardline
 
 (if_statement "if" @append_space)
+(arithmetic_if_statement "if" @append_space)
 (elseif_clause "elseif" @append_space)
 (elseif_clause "elseif" @append_space)
 (enumerator_statement "enumerator" @append_space)
@@ -33,13 +34,20 @@
 
 [
  ","
- (parenthesized_expression)
  (abstract_specifier)
  (procedure_qualifier)
  (block_label_start_expression)
  (intrinsic_type)
  (derived_type)
 ] @append_space
+
+; The condition of a statement is followed by a space, as in 'if (a) then'
+(if_statement (parenthesized_expression) @append_space)
+(elseif_clause (parenthesized_expression) @append_space)
+(where_statement (parenthesized_expression) @append_space)
+(elsewhere_clause (parenthesized_expression) @append_space)
+(arithmetic_if_statement (parenthesized_expression) @append_space)
+(while_statement (parenthesized_expression) @append_space)
 
 ; start end blocks (hardline)
 [
@@ -193,10 +201,12 @@
   "=>"
   ">"
   "/="
-  "+"
-  "-"
   "/"
 ] @prepend_space @append_space
+
+; Only binary "+" and "-" have spaces around them, not unary ones as in 'a = -1'
+(math_expression operator: ["+" "-"] @prepend_space @append_space)
+(binary_expression operator: ["+" "-"] @prepend_space @append_space)
 
 ; Only a multiplication has spaces around "*", not e.g. 'a(*)', 'len=*' or
 ; 'print *'
@@ -423,9 +433,9 @@ _ @append_antispace
 
 ; Logical and relational operators (also '.and.', '.eq.', ...) are surrounded
 ; by spaces, e.g. '0 .and. x' must not become '0.and.x'
-(logical_expression operator: _ @prepend_space @append_space)
+(logical_expression left: (_) operator: _ @prepend_space @append_space)
 (relational_expression operator: _ @prepend_space @append_space)
-; '.not.'
+; '.not.' has no left operand, so is only followed by a space, as in '(.not. a)'
 (logical_expression . _ @append_space . (_) .)
 
 ; Attribute statements: 'external f, g', 'intent(in) :: a', 'save s', ...
