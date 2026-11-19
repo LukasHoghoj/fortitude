@@ -1,6 +1,7 @@
 mod comments;
 mod continuation;
 mod errors;
+mod labels;
 mod preprocessor;
 mod range;
 mod split;
@@ -223,6 +224,10 @@ fn format_code(
     );
     if settings.split_comments {
         split_long_comments(&mut lines, settings.line_length);
+    }
+    // Moving labels to the first column never makes lines longer
+    if settings.col0_labels {
+        labels::labels_to_column0(&mut lines);
     }
 
     Ok(lines)
@@ -582,7 +587,7 @@ mod test {
         }
     }
 
-    use super::{create_formatter, format_file, format_source};
+    use super::{cached_formatter, create_formatter, format_file, format_source};
 
     lazy_static! {
         pub static ref TEST_FORMATTER: Language = create_formatter(2);
@@ -767,6 +772,28 @@ mod test {
 
         // Formatting again doesn't change anything
         let reformatted = format_source(&formatted, &TEST_FORMATTER, &settings)?.join("\n");
+        assert_eq!(formatted, reformatted);
+        Ok(())
+    }
+
+    #[test_case(2)]
+    #[test_case(3)]
+    fn format_column0_labels(indent_width: usize) -> Result<(), FormatterError> {
+        let snapshot = format!("labels-column0.f90_indent-{indent_width}");
+        let path = Path::new("./resources/test/fixtures/format/labels-column0.f90");
+        let source = std::fs::read_to_string(path)?;
+        let settings = FormatSettings {
+            col0_labels: true,
+            indent_width,
+            ..FormatSettings::default()
+        };
+        let language = cached_formatter(indent_width);
+        let formatted = format_source(&source, &language, &settings)?.join("\n");
+        apply_common_filters!();
+        assert_snapshot!(snapshot, formatted);
+
+        // Formatting again doesn't change anything
+        let reformatted = format_source(&formatted, &language, &settings)?.join("\n");
         assert_eq!(formatted, reformatted);
         Ok(())
     }

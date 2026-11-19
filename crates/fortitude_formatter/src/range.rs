@@ -32,6 +32,7 @@ use tree_sitter::{Node, Point};
 use fortitude_linter::settings::FormatSettings;
 
 use crate::format_source;
+use crate::labels::{label_to_column0, statement_indentation};
 use crate::preprocessor::{Directive, directive_kind};
 
 /// Format `source`, keeping its line endings. Unless it is empty, the result
@@ -85,11 +86,20 @@ pub fn format_lines(
         return Ok(Vec::new());
     }
     let indent_width = crate::indent_width(language);
-    let source_width = source_indent_width(&old, &statement_starts(&old)).unwrap_or(indent_width);
+    let col0_labels = settings.col0_labels;
+    let source_width =
+        source_indent_width(&old, &statement_starts(&old), col0_labels).unwrap_or(indent_width);
 
     let widths = ReindentWidths {
         source: source_width,
         formatter: indent_width,
+        col0_labels,
+    };
+    // Labels are moved to the first column when the lines are reindented, as
+    // the indentation of the statement is needed for that
+    let settings = &FormatSettings {
+        col0_labels: false,
+        ..settings.clone()
     };
     let whole_file = || -> Result<Vec<LineEdit>, FormatterError> {
         let formatted = format_text(source, language, settings)?;
@@ -144,11 +154,7 @@ fn format_slice(
         line_length: settings
             .line_length
             .saturating_sub(indent.saturating_sub(formatted_indent)),
-        preview: settings.preview,
-        indent_width: settings.indent_width,
-        indent_col0_comments: settings.indent_col0_comments,
-        split_comments: settings.split_comments,
-        split_strings: settings.split_strings,
+        ..settings.clone()
     };
     if !wrap {
         return format_text(text, language, &slice_settings).map(Some);
@@ -344,6 +350,8 @@ pub fn apply_line_edits(source: &str, edits: &[LineEdit]) -> String {
 struct ReindentWidths {
     source: usize,
     formatter: usize,
+    /// Labels are put in the first column (`col0-labels`)
+    col0_labels: bool,
 }
 
 /// The edits turning `source` into `formatted` that touch the statements on
@@ -457,6 +465,8 @@ struct Reindent<'a> {
     source_width: usize,
     /// The indentation width of the formatter
     formatter_width: usize,
+    /// Labels are put in the first column
+    col0_labels: bool,
 }
 
 impl<'a> Reindent<'a> {
@@ -496,6 +506,7 @@ impl<'a> Reindent<'a> {
             source_width: widths.source,
             old_starts,
             formatter_width: widths.formatter.max(1),
+            col0_labels: widths.col0_labels,
         }
     }
 
@@ -504,8 +515,12 @@ impl<'a> Reindent<'a> {
     fn anchor(&self, start: usize) -> Anchor {
         (0..start.min(self.old.len())).rev().find_map(|line| {
             let new_line = self.formatted_line[line]?;
-            self.old_starts[line]
-                .then(|| (indentation(self.old[line]), indentation(self.new[new_line])))
+            self.old_starts[line].then(|| {
+                (
+                    self.source_indentation(self.old[line]),
+                    indentation(self.new[new_line]),
+                )
+            })
         })
     }
 
@@ -513,9 +528,24 @@ impl<'a> Reindent<'a> {
     /// `anchor`
     fn line(&self, line: usize, anchor: Anchor) -> String {
         let text = self.new[line];
-        match self.indent(line, anchor) {
+        let text = match self.indent(line, anchor) {
             Some(indent) => format!("{}{}", " ".repeat(indent), text.trim_start()),
             None => text.to_string(),
+        };
+        if self.col0_labels && self.statement_start[line] == line && !self.in_string[line] {
+            if let Some(moved) = label_to_column0(&text) {
+                return moved;
+            }
+        }
+        text
+    }
+
+    /// The indentation of the statement starting on the source line `line`
+    fn source_indentation(&self, line: &str) -> usize {
+        if self.col0_labels {
+            statement_indentation(line)
+        } else {
+            indentation(line)
         }
     }
 
@@ -575,11 +605,15 @@ fn statement_starts(lines: &[&str]) -> Vec<bool> {
 /// The indentation width used in the source: the most common increase in
 /// indentation from one statement to the next, the smallest if several are
 /// as common
-fn source_indent_width(lines: &[&str], starts: &[bool]) -> Option<usize> {
+fn source_indent_width(lines: &[&str], starts: &[bool], col0_labels: bool) -> Option<usize> {
     let mut counts = std::collections::BTreeMap::new();
     let mut previous = None;
     for (line, _) in lines.iter().zip(starts).filter(|(_, start)| **start) {
-        let indent = indentation(line);
+        let indent = if col0_labels {
+            statement_indentation(line)
+        } else {
+            indentation(line)
+        };
         if let Some(previous) = previous
             && indent > previous
         {
@@ -636,7 +670,7 @@ fn widen_to_statements(lines: &[&str], range: Range<usize>) -> Range<usize> {
 /// For each line, whether the statement on it continues on the next line. This
 /// is the case if the line ends with `&`, outside of comments, or if it is a
 /// comment or blank line within a continued statement.
-fn continued_lines(lines: &[&str]) -> Vec<bool> {
+pub(crate) fn continued_lines(lines: &[&str]) -> Vec<bool> {
     continuation(lines).iter().map(|c| c.continued).collect()
 }
 
@@ -743,6 +777,34 @@ end do
 x=1
 end program p
 ";
+
+    #[test]
+    fn puts_labels_in_column0() {
+        let source = "\
+subroutine s
+    do i = 1, 3
+        if (i > 1) goto 10
+10      continue
+        x =  1
+    end do
+end subroutine s
+";
+        let settings = FormatSettings {
+            col0_labels: true,
+            ..settings()
+        };
+        let format = |lines: std::ops::Range<usize>| {
+            let edits = format_lines(source, &cached_formatter(2), &settings, &[lines]).unwrap();
+            apply_line_edits(source, &edits)
+        };
+        // The label stays in the first column, and the statement keeps the
+        // indentation of the source
+        assert_eq!(format(2..4), source);
+        assert_eq!(format(3..5), source.replace("x =  1", "x = 1"));
+        let indented = source.replace("10      continue", "        10 continue");
+        let edits = format_lines(&indented, &cached_formatter(2), &settings, &[3..4]).unwrap();
+        assert_eq!(apply_line_edits(&indented, &edits), source);
+    }
 
     #[test]
     fn keeps_line_endings() {

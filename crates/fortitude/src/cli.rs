@@ -664,6 +664,7 @@ struct ExplicitConfigOverrides {
     format_line_length: Option<usize>,
     format_indent_width: Option<usize>,
     indent_col0_comments: Option<bool>,
+    col0_labels: Option<bool>,
     split_comments: Option<bool>,
     split_strings: Option<bool>,
 }
@@ -734,6 +735,9 @@ impl ConfigurationTransformer for ExplicitConfigOverrides {
         }
         if self.indent_col0_comments.is_some() {
             config.indent_col0_comments = self.indent_col0_comments;
+        }
+        if self.col0_labels.is_some() {
+            config.col0_labels = self.col0_labels;
         }
         if self.split_comments.is_some() {
             config.split_comments = self.split_comments;
@@ -851,6 +855,11 @@ pub struct FormatCommand {
     /// default, they stay in the first column.
     #[arg(long, action = SetTrue, help_heading = "Format configuration")]
     pub indent_col0_comments: Option<bool>,
+    /// Put statement labels in the first column, keeping the statement after them
+    /// where it is indented. By default, labels are indented like the code around
+    /// them.
+    #[arg(long, action = SetTrue, help_heading = "Format configuration")]
+    pub col0_labels: Option<bool>,
     /// Wrap comment lines exceeding the line length at whitespace, repeating the comment
     /// marker. Compiler and OpenMP/OpenACC directives (`!$omp`, `!$`, `!DIR$`, ...) and
     /// `allow` comments are never wrapped.
@@ -932,6 +941,7 @@ impl FormatCommand {
             format_preview: resolve_bool_arg(self.preview, self.no_preview).map(PreviewMode::from),
             format_indent_width: self.indent,
             indent_col0_comments: self.indent_col0_comments,
+            col0_labels: self.col0_labels,
             split_comments: self.split_comments,
             split_strings: self.split_strings,
             ..ExplicitConfigOverrides::default()

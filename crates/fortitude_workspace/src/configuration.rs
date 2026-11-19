@@ -271,6 +271,7 @@ pub struct Configuration {
     pub format_line_length: Option<usize>,
     pub format_indent_width: Option<usize>,
     pub indent_col0_comments: Option<bool>,
+    pub col0_labels: Option<bool>,
     pub split_comments: Option<bool>,
     pub split_strings: Option<bool>,
 }
@@ -383,6 +384,7 @@ impl Configuration {
             format_line_length: format.line_length,
             format_indent_width: format.indent_width.map(IndentWidth::as_usize),
             indent_col0_comments: format.indent_col0_comments,
+            col0_labels: format.col0_labels,
             split_comments: format.split_comments,
             split_strings: format.split_strings,
         }
@@ -494,6 +496,7 @@ impl Configuration {
                     .or(self.indent_width.map(IndentWidth::as_usize))
                     .unwrap_or(FormatSettings::default().indent_width),
                 indent_col0_comments: self.indent_col0_comments.unwrap_or_default(),
+                col0_labels: self.col0_labels.unwrap_or_default(),
                 split_comments: self.split_comments.unwrap_or_default(),
                 split_strings: self.split_strings.unwrap_or_default(),
             },
@@ -588,6 +591,7 @@ impl Configuration {
             format_line_length: self.format_line_length.or(config.format_line_length),
             format_indent_width: self.format_indent_width.or(config.format_indent_width),
             indent_col0_comments: self.indent_col0_comments.or(config.indent_col0_comments),
+            col0_labels: self.col0_labels.or(config.col0_labels),
             split_comments: self.split_comments.or(config.split_comments),
             split_strings: self.split_strings.or(config.split_strings),
         }

@@ -1835,6 +1835,42 @@ Configures how Fortitude formats your code.
 
 The formatter is experimental and only runs in preview mode.
 
+#### [`col0-labels`](#format_col0-labels) {: #format_col0-labels }
+<span id="col0-labels"></span>
+
+Whether to put statement labels in the first column. The statement after a
+label stays where it is indented, so that with an indentation of six columns,
+`8888 continue` is formatted as `8888  continue`. A label at least as long as
+the indentation is followed by a single space. By default, labels are indented
+like the code around them.
+
+**Default value**: `false`
+
+**Type**: `bool`
+
+**Example usage**:
+
+=== "`fpm.toml`"
+
+    ```toml
+    [extra.fortitude.format]
+    col0-labels = true
+    ```
+=== "`fortitude.toml` or `.fortitude.toml`"
+
+    ```toml
+    [format]
+    col0-labels = true
+    ```
+=== "`pyproject.toml`"
+
+    ```toml
+    [tool.fortitude.format]
+    col0-labels = true
+    ```
+
+---
+
 #### [`indent-col0-comments`](#format_indent-col0-comments) {: #format_indent-col0-comments }
 <span id="indent-col0-comments"></span>
 
